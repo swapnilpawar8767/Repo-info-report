@@ -19,7 +19,7 @@ jobs:
 
       - name: Generate and send report
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         run: |
           python << 'EOF'
@@ -29,7 +29,7 @@ jobs:
           import pytz
 
           repos = [
-              "ZySec-AI/cpod-backend" 
+              "ZySec-AI/cpod-backend"
               "ZySec-AI/cyberpod"
               "ZySec-AI/cpod-ui"
           ]
