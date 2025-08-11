@@ -2,38 +2,42 @@ name: Daily GitHub Repo Report
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 9 * * *" # Runs daily at 9:00 AM UTC
 
 jobs:
-  report:
+  generate-report:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup GitHub CLI
-        uses: cli/cli-action@v2
-
-      - name: Generate Report
+      - name: Generate Daily Report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
-          echo "# 📊 Daily GitHub Repo Report 📊" > report.md
+          echo "📊 **Daily GitHub Repo Report** 📊" > report.md
           echo "" >> report.md
-          echo "🗓 Date: $(date '+%Y-%m-%d %H:%M:%S')" >> report.md
+          echo "### Pull Requests" >> report.md
           echo "" >> report.md
-          echo "## Recent Commits" >> report.md
-          echo "" >> report.md
-          
-          # Get last 5 commits in test-style format
-          gh api repos/{owner}/{repo}/commits \
-            --paginate \
-            -q '.[] | "- Author: \(.commit.author.name)\n  Message: \(.commit.message)\n  SHA: \(.sha)\n  URL: \(.html_url)\n"' \
-            | head -n 20 >> report.md
-          
-          echo "" >> report.md
-          echo "---" >> report.md
-          echo "_End of Report_" >> report.md
 
-      - name: Upload Artifact (for testing)
+          gh pr list --state all --json title,state,number,updatedAt,url \
+          --jq '.[] | "- **\(.title)** (#\(.number)) — \(.state | ascii_upcase) — Updated: \(.updatedAt) — [View PR](\(.url))"' \
+          >> report.md
+
+          echo "" >> report.md
+          echo "### Issues" >> report.md
+          echo "" >> report.md
+
+          gh issue list --state all --json title,state,number,milestone,updatedAt,url \
+          --jq '.[] | "- **\(.title)** (#\(.number)) — \(.state | ascii_upcase) — Milestone: \(.milestone.title // "None") — Updated: \(.updatedAt) — [View Issue](\(.url))"' \
+          >> report.md
+
+          cat report.md
+
+      - name: Upload Report as Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: daily-report
+          name: daily-github-report
           path: report.md
