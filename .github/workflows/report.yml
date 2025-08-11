@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: Generate GitHub Repo Report
         env:
-          REPO: my-team-repo # Change to your repo name
+          REPO: https://github.com/swapnilpawar8767/Repo-info-report/ # Change to your repo name
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "📊 **Daily GitHub Repo Report** 📊" > report.md
