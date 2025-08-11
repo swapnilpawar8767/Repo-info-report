@@ -1,47 +1,39 @@
-name: Daily Project Status Report
+name: Daily Commit Report
 
 on:
-  workflow_dispatch:
   schedule:
     - cron: "0 5 * * *" # Runs daily at 05:00 UTC
+  workflow_dispatch:
 
 jobs:
-  send-status-report:
+  daily-report:
     runs-on: ubuntu-latest
     steps:
-      - name: Get Issues and Pull Requests
-        id: get_data
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const repo = context.repo.repo;
-            const owner = context.repo.owner;
+      - name: Checkout
+        uses: actions/checkout@v4
 
-            // Fetch open and closed issues
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner,
-              repo,
-              state: 'all',
-              per_page: 100
-            });
+      - name: Get commits from last 24 hours
+        id: commits
+        run: |
+          REPOS=("owner/repo1" "owner/repo2") # <-- Add all your repos here
+          REPORT=""
 
-            const rows = issues.map(issue => {
-              const lastUpdated = new Date(issue.updated_at).toISOString().replace('T', ' ').slice(0, 16);
-              const dueDate = issue.milestone?.due_on
-                ? new Date(issue.milestone.due_on).toISOString().split('T')[0]
-                : '—';
-              const status = issue.state === 'open' ? '⏳ Open' : '✅ Closed';
-              const lastComment = issue.comments > 0 ? issue.comments_url : '—';
+          for REPO in "${REPOS[@]}"; do
+            COMMITS=$(gh api repos/$REPO/commits \
+              --jq '.[] | select(.commit.author.date >= (now - 86400 | todate)) | "- " + .commit.author.name + ": " + .commit.message + " (" + .html_url + ")"')
+            
+            if [ -z "$COMMITS" ]; then
+              COMMITS="No commits in last 24 hours"
+            fi
 
-              return `| ${issue.title} | ${lastComment} | ${dueDate} | ${status} | ${lastUpdated} |`;
-            }).join("\n");
+            REPORT+="**Repository:** $REPO\n$COMMITS\n\n"
+          done
 
-            const header = `**📌 Daily Project Status – ${repo}**\n\n` +
-              "| Task / Description | Last Comment | Due Date | Status | Last Updated |\n" +
-              "|--------------------|--------------|----------|--------|--------------|\n";
-
-            return header + rows;
+          echo "report<<EOF" >> $GITHUB_OUTPUT
+          echo "$REPORT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Send to Microsoft Teams
         uses: fjogeleit/http-request-action@v1
@@ -64,11 +56,11 @@ jobs:
                         "type": "TextBlock",
                         "size": "Large",
                         "weight": "Bolder",
-                        "text": "📌 Daily Project Status – ${{ github.event.repository.name }}"
+                        "text": "📌 Daily Commit Report"
                       },
                       {
                         "type": "TextBlock",
-                        "text": "${{ steps.get_data.outputs.result }}",
+                        "text": "${{ steps.commits.outputs.report }}",
                         "wrap": true
                       }
                     ]
