@@ -1,0 +1,56 @@
+name: Repo Report to Teams
+
+on:
+  workflow_dispatch: # Manual trigger for testing
+  schedule:
+    - cron: "0 9 * * *" # Every day at 9 AM UTC
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Run report script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        run: |
+          pip install requests
+          python <<'EOF'
+          import os, requests
+
+          repo = os.getenv("GITHUB_REPOSITORY")
+          token = os.getenv("GITHUB_TOKEN")
+          headers = {"Authorization": f"token {token}"}
+
+          # Get issues
+          issues_url = f"https://api.github.com/repos/{repo}/issues?state=all"
+          issues = requests.get(issues_url, headers=headers).json()
+
+          message_lines = []
+          for issue in issues:
+              if "pull_request" in issue:
+                  type_ = "PR"
+              else:
+                  type_ = "Issue"
+              milestone = issue["milestone"]["title"] if issue.get("milestone") else "-"
+              due_date = issue["milestone"]["due_on"] if issue.get("milestone") else "-"
+              last_comment = "-"
+              comments_url = issue["comments_url"]
+              comments = requests.get(comments_url, headers=headers).json()
+              if comments:
+                  last_comment = comments[-1]["body"]
+              message_lines.append(
+                  f"**[{type_}]** {issue['title']} | Milestone: {milestone} | Due: {due_date} | Status: {issue['state']} | Last comment: {last_comment}"
+              )
+
+          # Send to Teams
+          teams_webhook = os.getenv("TEAMS_WEBHOOK_URL")
+          payload = {
+              "text": "GitHub Repo Report\n\n" + "\n".join(message_lines)
+          }
+          requests.post(teams_webhook, json=payload)
+          EOF
+
