@@ -1,9 +1,9 @@
-name: Daily GitHub Repo Report Simple Links
+name: Daily GitHub Repo Report
 
 on:
   schedule:
-    - cron: "0 9 * * *"  # Runs daily at 09:00 UTC (2:30 PM IST)
-  workflow_dispatch:      # Allows manual trigger
+    - cron: "0 9 * * *"  # Daily at 09:00 UTC (2:30 PM IST)
+  workflow_dispatch:
 
 jobs:
   send-report:
@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Generate and send simple clickable report
+      - name: Generate and send report
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
@@ -28,7 +28,7 @@ jobs:
           import datetime
 
           repos = [
-              "swapnilpawar8767/Repo-info-report"  # Add more repos here as "owner/repo"
+              "swapnilpawar8767/Repo-info-report"  # Add more repos here
           ]
 
           headers = {
@@ -37,13 +37,14 @@ jobs:
           }
 
           report_date = datetime.date.today()
-          report_lines = []
-          report_lines.append(f"📊 Open Issues as of {report_date}")
-          report_lines.append("")
+          separator = "──────────────────────────────"
+
+          # Build the report lines list
+          report_lines = [f"📊 Daily GitHub Repo Report - {report_date}", ""]
 
           for repo in repos:
               response = requests.get(
-                  f"https://api.github.com/repos/{repo}/issues?state=open&per_page=10&sort=updated",
+                  f"https://api.github.com/repos/{repo}/issues?state=all&per_page=5&sort=updated",
                   headers=headers,
               )
               issues = response.json()
@@ -55,27 +56,47 @@ jobs:
                   title = issue.get("title", "")
                   issue_number = issue.get("number")
                   issue_url = f"https://github.com/{repo}/issues/{issue_number}"
-
                   # Markdown clickable link for Teams
                   title_link = f"[{title}]({issue_url})"
 
+                  status_raw = issue.get("state", "").lower()
+                  status = "🆕 Open" if status_raw == "open" else "Closed"
+                  updated_at = issue.get("updated_at", "")[:10]
+
+                  due_date = "-"
                   milestone = issue.get("milestone")
-                  milestone_title = milestone["title"] if milestone else "None"
-                  state = issue.get("state", "").upper()
-                  updated = issue.get("updated_at", "")
+                  if milestone and milestone.get("due_on"):
+                      due_date = milestone["due_on"][:10]
 
-                  report_lines.append(f"{title_link} (Milestone: {milestone_title}, State: {state}, Updated: {updated})")
+                  last_comment = "No comments"
+                  if issue.get("comments", 0) > 0:
+                      comments_response = requests.get(issue["comments_url"], headers=headers)
+                      comments = comments_response.json()
+                      if comments:
+                          last_comment = comments[-1].get("body", "").replace("\n", " ")
+                          if len(last_comment) > 50:
+                              last_comment = last_comment[:47] + "..."
 
-          report_lines.append("")
-          report_lines.append("📋 Recent Pull Requests")
+                  # Append issue block with explicit newlines and extra spacing for Teams
+                  report_lines.append(separator)
+                  report_lines.append(f"📌 {title_link} ({repo})")
+                  report_lines.append(f"Last Comment :: {last_comment}")
+                  report_lines.append(f"Due Date     :: {due_date}")
+                  report_lines.append(f"Status       :: {status}")
+                  report_lines.append(f"Last Updated :: {updated_at}")
+                  report_lines.append("")  # blank line for spacing
 
+          report_lines.append(separator)
+
+          # Join with \n for new lines
           final_report = "\n".join(report_lines)
 
+          # Wrap report in triple backticks to render as code block in Teams for preserving format
           payload = {
-              "text": final_report
+              "text": f"```\n{final_report}\n```"
           }
 
           resp = requests.post(os.environ["TEAMS_WEBHOOK_URL"], json=payload)
           resp.raise_for_status()
-          print("✅ Simple clickable report sent to Teams!")
+          print("✅ Report sent to Teams successfully!")
           EOF
