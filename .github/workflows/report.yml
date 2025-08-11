@@ -2,7 +2,7 @@ name: Daily Repo Report to Teams
 
 on:
   schedule:
-    - cron: "0 9 * * *" # Daily at 09:00 UTC (adjust as needed)
+    - cron: "0 9 * * *" # Daily at 09:00 UTC (2:30 PM IST)
   workflow_dispatch: # Manual trigger
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
 
           # ---------- CONFIG ----------
           repos = [
-              "swapnilpawar8767/Repo-info-report"  # Format: owner/repo
+              "swapnilpawar8767/Repo-info-report"  # Add more in format owner/repo
           ]
           headers = {
               "Authorization": f"token {os.environ['GITHUB_TOKEN']}",
@@ -35,9 +35,7 @@ jobs:
           }
           # ----------------------------
 
-          report_lines = []
-          report_lines.append("| Repo Name | Task Name | Last Comment | Due Date | Status | Last Updated |")
-          report_lines.append("|-----------|-----------|--------------|----------|--------|--------------|")
+          issues_data = []
 
           for repo in repos:
               issues = requests.get(
@@ -53,7 +51,7 @@ jobs:
                   status = issue.get("state", "")
                   updated_at = issue.get("updated_at", "")[:10]
 
-                  due_date = ""
+                  due_date = "-"
                   if issue.get("milestone") and issue["milestone"].get("due_on"):
                       due_date = issue["milestone"]["due_on"][:10]
 
@@ -65,22 +63,36 @@ jobs:
                           if len(last_comment) > 50:
                               last_comment = last_comment[:47] + "..."
 
-                  report_lines.append(
-                      f"| {repo} | {task_name} | {last_comment} | {due_date or '-'} | {status} | {updated_at} |"
-                  )
+                  issues_data.append({
+                      "repo": repo,
+                      "task": task_name,
+                      "comment": last_comment,
+                      "due": due_date,
+                      "status": status,
+                      "updated": updated_at
+                  })
 
-          report_md = "\n".join(report_lines)
-
+          # Build Teams payload with card format
           payload = {
               "@type": "MessageCard",
               "@context": "http://schema.org/extensions",
               "summary": "Daily GitHub Repo Report",
               "themeColor": "0076D7",
-              "sections": [{
-                  "activityTitle": f"📊 Daily GitHub Repo Report - {datetime.date.today()}",
-                  "text": f"```\n{report_md}\n```"
-              }]
+              "title": f"📊 Daily GitHub Repo Report - {datetime.date.today()}",
+              "sections": []
           }
+
+          for item in issues_data:
+              payload["sections"].append({
+                  "activityTitle": f"**{item['task']}** ({item['repo']})",
+                  "facts": [
+                      {"name": "Last Comment", "value": item['comment']},
+                      {"name": "Due Date", "value": item['due']},
+                      {"name": "Status", "value": item['status']},
+                      {"name": "Last Updated", "value": item['updated']}
+                  ],
+                  "markdown": True
+              })
 
           resp = requests.post(os.environ["TEAMS_WEBHOOK_URL"], json=payload)
           resp.raise_for_status()
