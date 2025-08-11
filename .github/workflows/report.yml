@@ -76,10 +76,10 @@ jobs:
                   message_parts.append(f"""
             {separator}
             📌 **[{title}]({issue_url})** (**{repo}**)  
-            **Last Comment** :: {last_comment}  
-            Due Date     :: {due_date}  
-            Status       :: {status}  
-            Last Updated :: {updated_at}  
+             **Last Comment** :: {last_comment}  
+             **Due Date**     :: {due_date}  
+             **Status**       :: {status}  
+             **Last Updated** :: {updated_at}  
             """)
 
           message_parts.append(separator)
