@@ -1,43 +1,45 @@
-name: Daily GitHub Repo Report
+name: Daily Repo Report
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 9 * * *" # Runs daily at 9:00 AM UTC
+    - cron: "0 9 * * *" # Runs every day at 9 AM UTC
 
 jobs:
-  generate-report:
+  daily-report:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate Daily Report
+      - name: Set Repo Variable
+        run: echo "REPO=${GITHUB_REPOSITORY}" >> $GITHUB_ENV
+
+      - name: Generate Report
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
         run: |
           echo "📊 **Daily GitHub Repo Report** 📊" > report.md
           echo "" >> report.md
-          echo "### Pull Requests" >> report.md
+
+          echo "### Open Issues" >> report.md
+          gh issue list --repo "$REPO" --state open --limit 50 \
+            --json title,number,milestone,state,createdAt,updatedAt,url \
+            --jq '.[] | "- [\(.title)](\(.url)) (Milestone: \(.milestone.title // "None"), State: \(.state), Updated: \(.updatedAt))"' \
+            >> report.md
+
           echo "" >> report.md
+          echo "### Recent Pull Requests" >> report.md
+          gh pr list --repo "$REPO" --limit 20 \
+            --json title,number,state,createdAt,updatedAt,url \
+            --jq '.[] | "- [\(.title)](\(.url)) (State: \(.state), Updated: \(.updatedAt))"' \
+            >> report.md
 
-          gh pr list --state all --json title,state,number,updatedAt,url \
-          --jq '.[] | "- **\(.title)** (#\(.number)) — \(.state | ascii_upcase) — Updated: \(.updatedAt) — [View PR](\(.url))"' \
-          >> report.md
-
-          echo "" >> report.md
-          echo "### Issues" >> report.md
-          echo "" >> report.md
-
-          gh issue list --state all --json title,state,number,milestone,updatedAt,url \
-          --jq '.[] | "- **\(.title)** (#\(.number)) — \(.state | ascii_upcase) — Milestone: \(.milestone.title // "None") — Updated: \(.updatedAt) — [View Issue](\(.url))"' \
-          >> report.md
-
-          cat report.md
-
-      - name: Upload Report as Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: daily-github-report
-          path: report.md
+      - name: Send to Microsoft Teams
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        run: |
+          payload=$(jq -Rs '{text: .}' report.md)
+          curl -H "Content-Type: application/json" \
+               -d "$payload" \
+               "$TEAMS_WEBHOOK_URL"
