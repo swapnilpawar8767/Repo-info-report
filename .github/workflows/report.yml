@@ -39,7 +39,6 @@ jobs:
           report_date = datetime.date.today()
           separator = "──────────────────────────────"
 
-          # Start building the message
           message_parts = []
           message_parts.append(f"📊 Daily GitHub Repo Report - {report_date}\n")
 
@@ -72,7 +71,7 @@ jobs:
                           if len(last_comment) > 50:
                               last_comment = last_comment[:47] + "..."
 
-                  # Add each issue section with proper formatting
+                  # Add each issue section with proper newline after separator
                   message_parts.append(f"""
             {separator}
             📌 [{title}]({issue_url}) ({repo})  
@@ -85,9 +84,9 @@ jobs:
           message_parts.append(separator)
           final_message = "".join(message_parts)
 
-          # Send to Teams with markdown formatting
+          # Format as code block to preserve spacing
           payload = {
-              "text": final_message,
+              "text": f"```{final_message}```",
               "markdown": True
           }
 
