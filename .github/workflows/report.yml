@@ -1,70 +1,91 @@
-name: Daily Commit Report
+name: Daily Repo Report to Teams
 
 on:
   schedule:
-    - cron: "0 5 * * *" # Runs daily at 05:00 UTC
-  workflow_dispatch:
+    - cron: "0 9 * * *" # Runs daily at 09:00 UTC (adjust as needed)
+  workflow_dispatch: # Manual trigger
 
 jobs:
-  daily-report:
+  generate-report:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get commits from last 24 hours
-        id: commits
-        run: |
-          REPOS=("owner/repo1" "owner/repo2") # <-- Add all your repos here
-          REPORT=""
-
-          for REPO in "${REPOS[@]}"; do
-            COMMITS=$(gh api repos/$REPO/commits \
-              --jq '.[] | select(.commit.author.date >= (now - 86400 | todate)) | "- " + .commit.author.name + ": " + .commit.message + " (" + .html_url + ")"')
-            
-            if [ -z "$COMMITS" ]; then
-              COMMITS="No commits in last 24 hours"
-            fi
-
-            REPORT+="**Repository:** $REPO\n$COMMITS\n\n"
-          done
-
-          echo "report<<EOF" >> $GITHUB_OUTPUT
-          echo "$REPORT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Send to Microsoft Teams
-        uses: fjogeleit/http-request-action@v1
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          url: ${{ secrets.TEAMS_WEBHOOK_URL }}
-          method: POST
-          contentType: application/json
-          data: |
-            {
-              "type": "message",
-              "attachments": [
-                {
-                  "contentType": "application/vnd.microsoft.card.adaptive",
-                  "content": {
-                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                    "type": "AdaptiveCard",
-                    "version": "1.4",
-                    "body": [
-                      {
-                        "type": "TextBlock",
-                        "size": "Large",
-                        "weight": "Bolder",
-                        "text": "📌 Daily Commit Report"
-                      },
-                      {
-                        "type": "TextBlock",
-                        "text": "${{ steps.commits.outputs.report }}",
-                        "wrap": true
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Generate and send report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        run: |
+          import requests, os, datetime
+
+          # ---------- CONFIG ----------
+          repos = [
+              "https://github.com/swapnilpawar8767/Repo-info-report/"
+              
+          ]
+          headers = {
+              "Authorization": f"token {os.environ['GITHUB_TOKEN']}",
+              "Accept": "application/vnd.github.v3+json"
+          }
+          # ----------------------------
+
+          report_lines = []
+          report_lines.append("| Repo Name | Task Name | Last Comment | Due Date | Status | Last Updated |")
+          report_lines.append("|-----------|-----------|--------------|----------|--------|--------------|")
+
+          for repo in repos:
+              issues = requests.get(
+                  f"https://api.github.com/repos/{repo}/issues?state=all&per_page=5&sort=updated",
+                  headers=headers
+              ).json()
+
+              for issue in issues:
+                  if "pull_request" in issue:
+                      continue  # skip PRs, only issues
+
+                  task_name = issue.get("title", "")
+                  status = issue.get("state", "")
+                  updated_at = issue.get("updated_at", "")[:10]
+
+                  due_date = ""
+                  if issue.get("milestone") and issue["milestone"].get("due_on"):
+                      due_date = issue["milestone"]["due_on"][:10]
+
+                  # Get last comment if exists
+                  comments_url = issue.get("comments_url")
+                  last_comment = ""
+                  if issue.get("comments", 0) > 0:
+                      comments = requests.get(comments_url, headers=headers).json()
+                      if comments:
+                          last_comment = comments[-1].get("body", "").replace("\n", " ")
+                          if len(last_comment) > 50:
+                              last_comment = last_comment[:47] + "..."
+
+                  report_lines.append(
+                      f"| {repo} | {task_name} | {last_comment or 'No comments'} | {due_date or '-'} | {status} | {updated_at} |"
+                  )
+
+          report_md = "\n".join(report_lines)
+
+          payload = {
+              "@type": "MessageCard",
+              "@context": "http://schema.org/extensions",
+              "summary": "Daily GitHub Repo Report",
+              "themeColor": "0076D7",
+              "sections": [{
+                  "activityTitle": f"📊 Daily GitHub Repo Report - {datetime.date.today()}",
+                  "text": f"```\n{report_md}\n```"
+              }]
+          }
+
+          resp = requests.post(os.environ["TEAMS_WEBHOOK_URL"], json=payload)
+          resp.raise_for_status()
