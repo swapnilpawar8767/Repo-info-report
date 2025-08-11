@@ -28,7 +28,7 @@ jobs:
           import datetime
 
           repos = [
-              "swapnilpawar8767/Repo-info-report"  # Add more repos here
+              "swapnilpawar8767/Repo-info-report"
           ]
 
           headers = {
@@ -39,9 +39,9 @@ jobs:
           report_date = datetime.date.today()
           separator = "──────────────────────────────"
 
-          # Build the report sections
-          report_sections = []
-          report_sections.append(f"📊 Daily GitHub Repo Report - {report_date}\n")
+          # Start building the message
+          message_parts = []
+          message_parts.append(f"📊 Daily GitHub Repo Report - {report_date}\n")
 
           for repo in repos:
               response = requests.get(
@@ -52,18 +52,16 @@ jobs:
 
               for issue in issues:
                   if "pull_request" in issue:
-                      continue  # skip PRs
+                      continue
 
                   title = issue.get("title", "")
-                  status_raw = issue.get("state", "").lower()
-                  status = "🆕 Open" if status_raw == "open" else "Closed"
-                  updated_at = issue.get("updated_at", "")[:10]
                   issue_url = issue.get("html_url", "")
-
+                  status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
+                  updated_at = issue.get("updated_at", "")[:10]
+                  
                   due_date = "-"
-                  milestone = issue.get("milestone")
-                  if milestone and milestone.get("due_on"):
-                      due_date = milestone["due_on"][:10]
+                  if issue.get("milestone") and issue["milestone"].get("due_on"):
+                      due_date = issue["milestone"]["due_on"][:10]
 
                   last_comment = "No comments"
                   if issue.get("comments", 0) > 0:
@@ -74,26 +72,23 @@ jobs:
                           if len(last_comment) > 50:
                               last_comment = last_comment[:47] + "..."
 
-                  # Build each issue section with HTML line breaks
-                  issue_section = f"""
-                  {separator}
-                  📌 <a href="{issue_url}">{title}</a> ({repo})
-                  Last Comment :: {last_comment}
-                  Due Date     :: {due_date}
-                  Status       :: {status}
-                  Last Updated :: {updated_at}
-                  """
-                  report_sections.append(issue_section)
+                  # Add each issue section with proper formatting
+                  message_parts.append(f"""
+{separator}
+📌 [{title}]({issue_url}) ({repo})  
+Last Comment :: {last_comment}  
+Due Date     :: {due_date}  
+Status       :: {status}  
+Last Updated :: {updated_at}  
+""")
 
-          report_sections.append(separator)
+          message_parts.append(separator)
+          final_message = "".join(message_parts)
 
-          # Combine all sections
-          final_report = "\n".join(report_sections)
-
-          # Teams message payload with HTML formatting
+          # Send to Teams with markdown formatting
           payload = {
-              "text": final_report,
-              "markdown": False  # Using HTML formatting instead of markdown
+              "text": final_message,
+              "markdown": True
           }
 
           resp = requests.post(os.environ["TEAMS_WEBHOOK_URL"], json=payload)
