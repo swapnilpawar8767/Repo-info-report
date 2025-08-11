@@ -1,9 +1,9 @@
 name: Repo Report to Teams
 
 on:
-  workflow_dispatch: # Manual trigger for testing
+  workflow_dispatch: # manual trigger
   schedule:
-    - cron: "0 9 * * *" # Every day at 9 AM UTC
+    - cron: "0 9 * * *" # runs daily at 9 AM UTC
 
 jobs:
   send-report:
@@ -12,45 +12,68 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Run report script
+      - name: Install Python
+        run: sudo apt-get install -y python3 python3-pip
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Generate and send report
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         run: |
-          pip install requests
-          python <<'EOF'
+          python3 <<'EOF'
           import os, requests
 
           repo = os.getenv("GITHUB_REPOSITORY")
           token = os.getenv("GITHUB_TOKEN")
           headers = {"Authorization": f"token {token}"}
 
-          # Get issues
-          issues_url = f"https://api.github.com/repos/{repo}/issues?state=all"
+          # Fetch issues and PRs
+          issues_url = f"https://api.github.com/repos/{repo}/issues?state=all&per_page=100"
           issues = requests.get(issues_url, headers=headers).json()
 
-          message_lines = []
+          def get_last_comment(comments_url):
+              comments = requests.get(comments_url, headers=headers).json()
+              if comments:
+                  return comments[-1]["body"]
+              return "-"
+
+          # Prepare markdown table
+          table_lines = [
+              "| Type | Title | Milestone | Due Date | Status | Last Comment | Last Updated |",
+              "|------|-------|-----------|----------|--------|--------------|--------------|"
+          ]
+
           for issue in issues:
               if "pull_request" in issue:
                   type_ = "PR"
               else:
                   type_ = "Issue"
+
               milestone = issue["milestone"]["title"] if issue.get("milestone") else "-"
               due_date = issue["milestone"]["due_on"] if issue.get("milestone") else "-"
-              last_comment = "-"
-              comments_url = issue["comments_url"]
-              comments = requests.get(comments_url, headers=headers).json()
-              if comments:
-                  last_comment = comments[-1]["body"]
-              message_lines.append(
-                  f"**[{type_}]** {issue['title']} | Milestone: {milestone} | Due: {due_date} | Status: {issue['state']} | Last comment: {last_comment}"
+              last_comment = get_last_comment(issue["comments_url"])
+
+              # For PRs, also check review comments
+              if type_ == "PR":
+                  pr_number = issue["number"]
+                  review_comments_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/comments"
+                  review_comments = requests.get(review_comments_url, headers=headers).json()
+                  if review_comments:
+                      last_comment = review_comments[-1]["body"]
+
+              table_lines.append(
+                  f"| {type_} | {issue['title']} | {milestone} | {due_date} | {issue['state']} | {last_comment} | {issue['updated_at']} |"
               )
 
           # Send to Teams
           teams_webhook = os.getenv("TEAMS_WEBHOOK_URL")
           payload = {
-              "text": "GitHub Repo Report\n\n" + "\n".join(message_lines)
+              "text": "### GitHub Repo Report\n" + "\n".join(table_lines)
           }
-          requests.post(teams_webhook, json=payload)
+          r = requests.post(teams_webhook, json=payload)
+          if r.status_code != 200:
+              print(f"Error sending to Teams: {r.status_code}, {r.text}")
           EOF
-
