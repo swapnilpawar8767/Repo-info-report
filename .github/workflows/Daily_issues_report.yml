@@ -28,10 +28,6 @@ jobs:
           import datetime
           import pytz
 
-          # ========== EDIT REPOS HERE ==========
-          # Add or remove repositories you want to track in "owner/repo" format.
-          # Example: ["owner1/repo1"]
-
           repos = [
               "ZySec-AI/cpod-backend"
               "ZySec-AI/cyberpod"
