@@ -1,55 +1,74 @@
-name: GitHub Repo Daily Report
+name: GitHub Repo Report
 
 on:
-  schedule:
-    - cron: "0 5 * * *" # Runs every day at 5:00 UTC
   workflow_dispatch:
+  schedule:
+    - cron: "0 9 * * *" # Runs every day at 9 AM UTC
 
 jobs:
-  daily-report:
+  generate-report:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Generate Daily Report
-        id: generate
-        run: |
-          REPO="my-team-repo"
-          DATE=$(date -u +"%Y-%m-%d")
-
-          REPORT="**GitHub Repo Daily Report**\n\n"
-          REPORT+="📦 **Repository:** $REPO\n"
-          REPORT+="📅 **Date:** $DATE\n\n"
-          REPORT+="---\n\n"
-
-          # Pull Requests
-          REPORT+="🔹 **Pull Requests**\n"
-          PRS=$(gh pr list --state all --json title,updatedAt,state -q '.[] | "- \(.title) — \(.state) (Last Updated: \(.updatedAt))"')
-          if [ -z "$PRS" ]; then
-            REPORT+="No pull requests found.\n"
-          else
-            REPORT+="$PRS\n"
-          fi
-          REPORT+="\n"
-
-          # Issues
-          REPORT+="🔹 **Issues**\n"
-          ISSUES=$(gh issue list --state all --json title,updatedAt,state,milestone,dueOn -q '.[] | "- \(.title) — \(.milestone.title // "No milestone") (Due: \(.dueOn // "N/A")) — Status: \(.state) — Last Updated: \(.updatedAt)"')
-          if [ -z "$ISSUES" ]; then
-            REPORT+="No issues found.\n"
-          else
-            REPORT+="$ISSUES\n"
-          fi
-
-          echo "report<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$REPORT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+      - name: Generate GitHub Repo Report
         env:
+          REPO: my-team-repo # Change to your repo name
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Send report to Microsoft Teams
         run: |
-          curl -H "Content-Type: application/json" \
-               -d "{\"text\": \"${{ steps.generate.outputs.report }}\"}" \
-               ${{ secrets.MSTEAMS_WEBHOOK }}
+          echo "📊 **Daily GitHub Repo Report** 📊" > report.md
+          echo "" >> report.md
+          echo "| Type | Title | Milestone | Due Date | Status | Last Comment | Last Updated |" >> report.md
+          echo "|------|-------|-----------|----------|--------|--------------|--------------|" >> report.md
+
+          gh api graphql -f query='
+          {
+            repository(owner: "my-org", name: "'$REPO'") {
+              issues(first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
+                nodes {
+                  title
+                  state
+                  updatedAt
+                  comments(last: 1) { nodes { bodyText } }
+                  milestone { title dueOn }
+                  url
+                }
+              }
+              pullRequests(first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
+                nodes {
+                  title
+                  state
+                  updatedAt
+                  comments(last: 1) { nodes { bodyText } }
+                  milestone { title dueOn }
+                  url
+                }
+              }
+            }
+          }' --jq '
+          .data.repository.issues[]? as $i |
+          "| Issue | \($i.title) | \($i.milestone.title // "-") | \($i.milestone.dueOn // "-") | \($i.state | ascii_downcase) | \($i.comments.nodes[0].bodyText // "-") | \($i.updatedAt) |"
+          ' >> report.md
+
+          gh api graphql -f query='
+          {
+            repository(owner: "my-org", name: "'$REPO'") {
+              pullRequests(first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
+                nodes {
+                  title
+                  state
+                  updatedAt
+                  comments(last: 1) { nodes { bodyText } }
+                  milestone { title dueOn }
+                  url
+                }
+              }
+            }
+          }' --jq '
+          .data.repository.pullRequests[]? as $p |
+          "| PR | \($p.title) | \($p.milestone.title // "-") | \($p.milestone.dueOn // "-") | \($p.state | ascii_downcase) | \($p.comments.nodes[0].bodyText // "-") | \($p.updatedAt) |"
+          ' >> report.md
+
+      - name: Send to Microsoft Teams
+        uses: skitionek/notify-microsoft-teams@master
+        with:
+          webhook_url: ${{ secrets.MS_TEAMS_WEBHOOK }}
+          raw: "$(cat report.md)"
