@@ -1,75 +1,95 @@
-name: Daily GitHub Issue Report
+name: Daily Repo Report to Teams
 
 on:
   schedule:
-    - cron: "0 9 * * *" # Runs daily at 9 AM UTC
-  workflow_dispatch:
+    - cron: "0 9 * * *" # Daily at 09:00 UTC (2:30 PM IST)
+  workflow_dispatch: # Manual trigger
 
 jobs:
-  daily-report:
+  send-report:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
 
-      - name: Get Issues from GitHub API
-        id: get_issues
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Generate and send report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         run: |
-          repos=("swapnilpawar8767/Repo-info-report") # Add more repos if needed
-          report_date=$(date +"%Y-%m-%d")
-          final_report="📊 Daily GitHub Repo Report - ${report_date}\n"
+          python << 'EOF'
+          import requests, os, datetime
 
-          for repo in "${repos[@]}"; do
-            issues=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${repo}/issues?state=all&since=$(date -d '1 day ago' --utc +%Y-%m-%dT%H:%M:%SZ)")
+          # ---------- CONFIG ----------
+          repos = [
+              "swapnilpawar8767/Repo-info-report"  # Add more in format owner/repo
+          ]
+          headers = {
+              "Authorization": f"token {os.environ['GITHUB_TOKEN']}",
+              "Accept": "application/vnd.github.v3+json"
+          }
+          # ----------------------------
 
-            for row in $(echo "$issues" | jq -r '.[] | @base64'); do
-              _jq() {
-                echo ${row} | base64 --decode | jq -r ${1}
-              }
+          issues_data = []
 
-              title=$(_jq '.title')
-              number=$(_jq '.number')
-              state=$(_jq '.state')
-              updated=$(_jq '.updated_at' | cut -d'T' -f1)
-              due_date=$(_jq '.milestone.due_on')
-              comments_url=$(_jq '.comments_url')
+          for repo in repos:
+              issues = requests.get(
+                  f"https://api.github.com/repos/{repo}/issues?state=all&per_page=5&sort=updated",
+                  headers=headers
+              ).json()
 
-              # Get last comment
-              comments=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$comments_url")
-              last_comment=$(echo "$comments" | jq -r '.[-1].body // "No comments"')
+              for issue in issues:
+                  if "pull_request" in issue:
+                      continue  # Skip PRs
 
-              # Status formatting
-              if [[ "$state" == "open" ]]; then
-                status="🆕 Open"
-              else
-                status="Closed"
-              fi
+                  task_name = issue.get("title", "")
+                  status_raw = issue.get("state", "").lower()
+                  status = "🆕 Open" if status_raw == "open" else "Closed"
+                  updated_at = issue.get("updated_at", "")[:10]
 
-              # Handle null due date
-              if [[ "$due_date" == "null" ]]; then
-                due_date="-"
-              else
-                due_date=$(echo "$due_date" | cut -d'T' -f1)
-              fi
+                  due_date = "-"
+                  if issue.get("milestone") and issue["milestone"].get("due_on"):
+                      due_date = issue["milestone"]["due_on"][:10]
 
-              # Append formatted issue details
-              final_report+="\n──────────────────────────────\n"
-              final_report+="📌 ${title} (${repo})\n"
-              final_report+="Last Comment :: ${last_comment}\n"
-              final_report+="Due Date     :: ${due_date}\n"
-              final_report+="Status       :: ${status}\n"
-              final_report+="Last Updated :: ${updated}\n"
-            done
-          done
+                  last_comment = "No comments"
+                  if issue.get("comments", 0) > 0:
+                      comments = requests.get(issue["comments_url"], headers=headers).json()
+                      if comments:
+                          last_comment = comments[-1].get("body", "").replace("\n", " ")
+                          if len(last_comment) > 50:
+                              last_comment = last_comment[:47] + "..."
 
-          echo "final_report<<EOF" >> $GITHUB_ENV
-          echo -e "$final_report" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+                  issues_data.append({
+                      "repo": repo,
+                      "task": task_name,
+                      "comment": last_comment,
+                      "due": due_date,
+                      "status": status,
+                      "updated": updated_at
+                  })
 
-      - name: Send Report to Microsoft Teams
-        run: |
-          payload=$(jq -n --arg text "${final_report}" '{text: $text}')
-          curl -H 'Content-Type: application/json' \
-               -d "$payload" \
-               "${{ secrets.MS_TEAMS_WEBHOOK_URL }}"
+          # Build plain text report
+          report_date = datetime.date.today()
+          final_report = f"📊 Daily GitHub Repo Report - {report_date}\n\n"
+
+          for item in issues_data:
+              final_report += "──────────────────────────────\n"
+              final_report += f"📌 {item['task']} ({item['repo']})\n"
+              final_report += f"Last Comment :: {item['comment']}\n"
+              final_report += f"Due Date     :: {item['due']}\n"
+              final_report += f"Status       :: {item['status']}\n"
+              final_report += f"Last Updated :: {item['updated']}\n"
+
+          final_report += "──────────────────────────────"
+
+          # Send to Teams as plain text
+          payload = {"text": final_report}
+          resp = requests.post(os.environ["TEAMS_WEBHOOK_URL"], json=payload)
+          resp.raise_for_status()
+          print("✅ Report sent to Teams successfully!")
+          EOF
