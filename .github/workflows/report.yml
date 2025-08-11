@@ -28,7 +28,7 @@ jobs:
           import datetime
 
           repos = [
-              "swapnilpawar8767/Repo-info-report"  # Add more repos here
+              "swapnilpawar8767/Repo-info-report"  # Add more repos here if needed
           ]
 
           headers = {
@@ -39,7 +39,7 @@ jobs:
           report_date = datetime.date.today()
           separator = "──────────────────────────────"
 
-          # Build the report lines list
+          # Start report lines list
           report_lines = [f"📊 Daily GitHub Repo Report - {report_date}", ""]
 
           for repo in repos:
@@ -56,7 +56,6 @@ jobs:
                   title = issue.get("title", "")
                   issue_number = issue.get("number")
                   issue_url = f"https://github.com/{repo}/issues/{issue_number}"
-                  # Markdown clickable link for Teams (without code block)
                   title_link = f"[{title}]({issue_url})"
 
                   status_raw = issue.get("state", "").lower()
@@ -77,20 +76,22 @@ jobs:
                           if len(last_comment) > 50:
                               last_comment = last_comment[:47] + "..."
 
-                  # Append issue block with explicit newlines
-                  report_lines.append(separator)
-                  report_lines.append(f"📌 {title_link} ({repo})")
-                  report_lines.append(f"Last Comment :: {last_comment}")
-                  report_lines.append(f"Due Date     :: {due_date}")
-                  report_lines.append(f"Status       :: {status}")
-                  report_lines.append(f"Last Updated :: {updated_at}")
-                  report_lines.append("")  # blank line for spacing
+                  # Format block for each issue with explicit newlines
+                  block = (
+                      f"{separator}\n"
+                      f"📌 {title_link} ({repo})\n"
+                      f"Last Comment :: {last_comment}\n"
+                      f"Due Date     :: {due_date}\n"
+                      f"Status       :: {status}\n"
+                      f"Last Updated :: {updated_at}\n\n"
+                  )
+                  report_lines.append(block)
 
           report_lines.append(separator)
 
           final_report = "\n".join(report_lines)
 
-          # Send as plain markdown so Teams renders links clickable
+          # Send as plain markdown for clickable links and spacing
           payload = {
               "text": final_report
           }
