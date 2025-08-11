@@ -6,13 +6,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  daily-report:
+  send-report:
     runs-on: ubuntu-latest
     steps:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: "3.x"
 
       - name: Install dependencies
         run: pip install requests
@@ -28,7 +28,7 @@ jobs:
           import datetime
 
           repos = [
-              "swapnilpawar8767/Repo-info-report"  # Add more repos here if needed
+              "swapnilpawar8767/Repo-info-report"  # Add more repos here
           ]
 
           headers = {
@@ -37,9 +37,10 @@ jobs:
           }
 
           report_date = datetime.date.today()
-          report_text = f"📊 Daily GitHub Repo Report - {report_date}\n"
-
           separator = "──────────────────────────────"
+
+          # Build the report lines list
+          report_lines = [f"📊 Daily GitHub Repo Report - {report_date}", ""]
 
           for repo in repos:
               response = requests.get(
@@ -71,16 +72,25 @@ jobs:
                           if len(last_comment) > 50:
                               last_comment = last_comment[:47] + "..."
 
-                  report_text += f"\n{separator}\n"
-                  report_text += f"📌 {title} ({repo})\n"
-                  report_text += f"Last Comment :: {last_comment}\n"
-                  report_text += f"Due Date     :: {due_date}\n"
-                  report_text += f"Status       :: {status}\n"
-                  report_text += f"Last Updated :: {updated_at}\n"
+                  # Append issue block with explicit newlines and extra spacing for Teams
+                  report_lines.append(separator)
+                  report_lines.append(f"📌 {title} ({repo})")
+                  report_lines.append(f"Last Comment :: {last_comment}")
+                  report_lines.append(f"Due Date     :: {due_date}")
+                  report_lines.append(f"Status       :: {status}")
+                  report_lines.append(f"Last Updated :: {updated_at}")
+                  report_lines.append("")  # blank line for spacing
 
-          report_text += f"\n{separator}\n"
+          report_lines.append(separator)
 
-          payload = {"text": report_text}
+          # Join with \n for new lines
+          final_report = "\n".join(report_lines)
+
+          # Wrap report in triple backticks to render as code block in Teams for preserving format
+          payload = {
+              "text": f"```\n{final_report}\n```"
+          }
+
           resp = requests.post(os.environ["TEAMS_WEBHOOK_URL"], json=payload)
           resp.raise_for_status()
           print("✅ Report sent to Teams successfully!")
