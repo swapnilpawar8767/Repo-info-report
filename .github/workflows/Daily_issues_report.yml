@@ -39,7 +39,7 @@ jobs:
           }
 
           report_date = datetime.date.today()
-          separator = "──────────────────────────────"
+          separator = "──────────────────────────────\n"
           IST = pytz.timezone('Asia/Kolkata')
 
           message_parts = []
