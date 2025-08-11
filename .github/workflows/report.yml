@@ -57,6 +57,7 @@ jobs:
                   status_raw = issue.get("state", "").lower()
                   status = "🆕 Open" if status_raw == "open" else "Closed"
                   updated_at = issue.get("updated_at", "")[:10]
+                  issue_url = issue.get("html_url", "")  # Get the URL to the issue
 
                   due_date = "-"
                   milestone = issue.get("milestone")
@@ -72,9 +73,9 @@ jobs:
                           if len(last_comment) > 50:
                               last_comment = last_comment[:47] + "..."
 
-                  # Append issue block with explicit newlines and extra spacing for Teams
+                  # Append issue block with clickable title
                   report_lines.append(separator)
-                  report_lines.append(f"📌 {title} ({repo})")
+                  report_lines.append(f"📌 [{title}]({issue_url}) ({repo})")  # Markdown-style clickable link
                   report_lines.append(f"Last Comment :: {last_comment}")
                   report_lines.append(f"Due Date     :: {due_date}")
                   report_lines.append(f"Status       :: {status}")
@@ -86,9 +87,10 @@ jobs:
           # Join with \n for new lines
           final_report = "\n".join(report_lines)
 
-          # Wrap report in triple backticks to render as code block in Teams for preserving format
+          # Teams message payload with markdown enabled
           payload = {
-              "text": f"```\n{final_report}\n```"
+              "text": final_report,
+              "markdown": True  # This enables markdown formatting including clickable links
           }
 
           resp = requests.post(os.environ["TEAMS_WEBHOOK_URL"], json=payload)
