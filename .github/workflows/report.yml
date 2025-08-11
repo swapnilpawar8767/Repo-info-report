@@ -40,14 +40,18 @@ jobs:
 
           report_date = datetime.date.today()
           separator = "──────────────────────────────\n"
-
           IST = pytz.timezone('Asia/Kolkata')
 
-          # Start building the message
           message_parts = []
           message_parts.append(f"📊 Daily GitHub Repo Report - {report_date}\n")
 
           for repo in repos:
+              # Add repo name heading centered with bold
+              repo_name_centered = f"**{' ' * 10}{repo.upper()}**"
+              message_parts.append(separator)
+              message_parts.append(repo_name_centered + "\n")
+              message_parts.append(separator)
+
               response = requests.get(
                   f"https://api.github.com/repos/{repo}/issues?state=all&per_page=5&sort=updated",
                   headers=headers,
@@ -62,7 +66,6 @@ jobs:
                   issue_url = issue.get("html_url", "")
                   status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
 
-                  # Parse updated_at with UTC, convert to IST
                   updated_at_raw = issue.get("updated_at", "")
                   try:
                       dt_utc = datetime.datetime.strptime(updated_at_raw, "%Y-%m-%dT%H:%M:%SZ")
@@ -85,10 +88,8 @@ jobs:
                           if len(last_comment) > 50:
                               last_comment = last_comment[:47] + "..."
 
-                  # Add each issue section with proper formatting
                   message_parts.append(f"""
-          {separator}
-          📌 **[{title}]({issue_url})** (**{repo}**)  
+          📌 **[{title}]({issue_url})**  
           **Last Comment** :: {last_comment}  
           **Due Date**     :: {due_date}  
           **Status**       :: {status}  
@@ -98,7 +99,6 @@ jobs:
           message_parts.append(separator)
           final_message = "".join(message_parts)
 
-          # Send to Teams with markdown formatting
           payload = {
               "text": final_message,
               "markdown": True
