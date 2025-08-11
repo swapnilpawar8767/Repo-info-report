@@ -68,7 +68,7 @@ jobs:
       - name: Send to Microsoft Teams
         uses: fjogeleit/http-request-action@v1
         with:
-          url: ${{ secrets.MS_TEAMS_WEBHOOK_URL }}
+          url: ${{ secrets.TEAMS_WEBHOOK_URL }}
           method: 'POST'
           contentType: 'application/json'
           data: |
