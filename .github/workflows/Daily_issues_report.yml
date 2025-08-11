@@ -29,9 +29,8 @@ jobs:
           import pytz
 
           repos = [
-              "ZySec-AI/cpod-backend" 
-              "ZySec-AI/cyberpod"
-              "ZySec-AI/cpod-ui"
+              "swapnilpawar8767/Repo-info-report",
+              "swapnilpawar8767/oc-project"
           ]
 
           headers = {
@@ -40,7 +39,7 @@ jobs:
           }
 
           report_date = datetime.date.today()
-          separator = "──────────────────────────────\n"
+          separator = "──────────────────────────────"
           IST = pytz.timezone('Asia/Kolkata')
 
           message_parts = []
