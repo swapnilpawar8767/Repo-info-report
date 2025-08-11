@@ -15,7 +15,7 @@ jobs:
           python-version: "3.x"
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests pytz
 
       - name: Generate and send report
         env:
@@ -26,6 +26,7 @@ jobs:
           import requests
           import os
           import datetime
+          import pytz
 
           repos = [
               "swapnilpawar8767/Repo-info-report"
@@ -38,6 +39,8 @@ jobs:
 
           report_date = datetime.date.today()
           separator = "──────────────────────────────\n"
+
+          IST = pytz.timezone('Asia/Kolkata')
 
           # Start building the message
           message_parts = []
@@ -57,8 +60,17 @@ jobs:
                   title = issue.get("title", "")
                   issue_url = issue.get("html_url", "")
                   status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
-                  updated_at = issue.get("updated_at", "")[:10]
-                  
+
+                  # Parse updated_at with UTC, convert to IST
+                  updated_at_raw = issue.get("updated_at", "")
+                  try:
+                      dt_utc = datetime.datetime.strptime(updated_at_raw, "%Y-%m-%dT%H:%M:%SZ")
+                      dt_utc = dt_utc.replace(tzinfo=datetime.timezone.utc)
+                      dt_ist = dt_utc.astimezone(IST)
+                      updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
+                  except Exception:
+                      updated_at = updated_at_raw
+
                   due_date = "-"
                   if issue.get("milestone") and issue["milestone"].get("due_on"):
                       due_date = issue["milestone"]["due_on"][:10]
@@ -74,13 +86,13 @@ jobs:
 
                   # Add each issue section with proper formatting
                   message_parts.append(f"""
-            {separator}
-            📌 **[{title}]({issue_url})** (**{repo}**)  
-            **Last Comment** :: {last_comment}  
-            **Due Date**     :: {due_date}  
-            **Status**       :: {status}  
-            **Last Updated** :: {updated_at}  
-            """)
+          {separator}
+          📌 **[{title}]({issue_url})** (**{repo}**)  
+          **Last Comment** :: {last_comment}  
+          **Due Date**     :: {due_date}  
+          **Status**       :: {status}  
+          **Last Updated** :: {updated_at}  
+          """)
 
           message_parts.append(separator)
           final_message = "".join(message_parts)
