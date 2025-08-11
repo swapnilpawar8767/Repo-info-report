@@ -39,7 +39,6 @@ jobs:
           report_date = datetime.date.today()
           separator = "──────────────────────────────"
 
-          # Build the report lines list
           report_lines = [f"📊 Daily GitHub Repo Report - {report_date}", ""]
 
           for repo in repos:
@@ -54,6 +53,12 @@ jobs:
                       continue  # skip PRs
 
                   title = issue.get("title", "")
+                  issue_number = issue.get("number")
+                  issue_url = f"https://github.com/{repo}/issues/{issue_number}"
+
+                  # Make clickable markdown link for Teams: [title](url)
+                  title_link = f"[{title}]({issue_url})"
+
                   status_raw = issue.get("state", "").lower()
                   status = "🆕 Open" if status_raw == "open" else "Closed"
                   updated_at = issue.get("updated_at", "")[:10]
@@ -72,21 +77,19 @@ jobs:
                           if len(last_comment) > 50:
                               last_comment = last_comment[:47] + "..."
 
-                  # Append issue block with explicit newlines and extra spacing for Teams
                   report_lines.append(separator)
-                  report_lines.append(f"📌 {title} ({repo})")
+                  report_lines.append(f"📌 {title_link} ({repo})")
                   report_lines.append(f"Last Comment :: {last_comment}")
                   report_lines.append(f"Due Date     :: {due_date}")
                   report_lines.append(f"Status       :: {status}")
                   report_lines.append(f"Last Updated :: {updated_at}")
-                  report_lines.append("")  # blank line for spacing
+                  report_lines.append("")
 
           report_lines.append(separator)
 
-          # Join with \n for new lines
           final_report = "\n".join(report_lines)
 
-          # Wrap report in triple backticks to render as code block in Teams for preserving format
+          # Wrap with triple backticks for code block (monospace + newlines preserved)
           payload = {
               "text": f"```\n{final_report}\n```"
           }
