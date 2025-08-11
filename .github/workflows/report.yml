@@ -48,28 +48,29 @@ jobs:
                       continue  # Skip PRs
 
                   task_name = issue.get("title", "")
-                  status = issue.get("state", "")
+                  status_raw = issue.get("state", "").lower()
+                  status = "🟢 Open" if status_raw == "open" else "🔴 Closed"
                   updated_at = issue.get("updated_at", "")[:10]
 
-                  due_date = "-"
+                  due_date = "⏳ -"
                   if issue.get("milestone") and issue["milestone"].get("due_on"):
-                      due_date = issue["milestone"]["due_on"][:10]
+                      due_date = f"📅 {issue['milestone']['due_on'][:10]}"
 
-                  last_comment = "No comments"
+                  last_comment = "💬 No comments"
                   if issue.get("comments", 0) > 0:
                       comments = requests.get(issue["comments_url"], headers=headers).json()
                       if comments:
-                          last_comment = comments[-1].get("body", "").replace("\n", " ")
+                          last_comment = "💬 " + comments[-1].get("body", "").replace("\n", " ")
                           if len(last_comment) > 50:
                               last_comment = last_comment[:47] + "..."
 
                   issues_data.append({
                       "repo": repo,
-                      "task": task_name,
+                      "task": f"📝 {task_name}",
                       "comment": last_comment,
                       "due": due_date,
                       "status": status,
-                      "updated": updated_at
+                      "updated": f"⏱ {updated_at}"
                   })
 
           # Build Teams payload with card format
@@ -84,15 +85,16 @@ jobs:
 
           for item in issues_data:
               payload["sections"].append({
-                  "activityTitle": f"**{item['task']}** ({item['repo']})",
+                  "activityTitle": f"{item['task']} **({item['repo']})**",
                   "facts": [
-                      {"name": "Last Comment", "value": item['comment']},
-                      {"name": "Due Date", "value": item['due']},
-                      {"name": "Status", "value": item['status']},
-                      {"name": "Last Updated", "value": item['updated']}
+                      {"name": "💬 Last Comment", "value": item['comment']},
+                      {"name": "📅 Due Date", "value": item['due']},
+                      {"name": "🚦 Status", "value": item['status']},
+                      {"name": "⏱ Last Updated", "value": item['updated']}
                   ],
                   "markdown": True
               })
+              payload["sections"].append({"activityTitle": "---"})  # Separator
 
           resp = requests.post(os.environ["TEAMS_WEBHOOK_URL"], json=payload)
           resp.raise_for_status()
