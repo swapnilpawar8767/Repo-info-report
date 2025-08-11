@@ -29,8 +29,9 @@ jobs:
           import pytz
 
           repos = [
-              "swapnilpawar8767/Repo-info-report",
-              "swapnilpawar8767/oc-project"
+              "ZySec-AI/cpod-backend"
+              "ZySec-AI/cyberpod"
+              "ZySec-AI/cpod-ui"
           ]
 
           headers = {
