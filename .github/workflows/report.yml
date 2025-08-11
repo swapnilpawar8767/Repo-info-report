@@ -1,45 +1,77 @@
-name: Daily Repo Report
+name: Daily Project Status Report
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "0 9 * * *" # Runs every day at 9 AM UTC
+    - cron: "0 9 * * *"  # Runs every day at 9:00 AM UTC
+  workflow_dispatch:    # Allow manual trigger
 
 jobs:
-  daily-report:
+  report:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Set Repo Variable
-        run: echo "REPO=${GITHUB_REPOSITORY}" >> $GITHUB_ENV
+      - name: Generate Project Report
+        id: generate
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const repoName = context.repo.repo;
+            const owner = context.repo.owner;
 
-      - name: Generate Report
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "📊 **Daily GitHub Repo Report** 📊" > report.md
-          echo "" >> report.md
+            // Fetch issues (including PRs)
+            const issues = await github.paginate(
+              github.rest.issues.listForRepo,
+              {
+                owner,
+                repo: repoName,
+                state: 'all', // open + closed
+                per_page: 100
+              }
+            );
 
-          echo "### Open Issues" >> report.md
-          gh issue list --repo "$REPO" --state open --limit 50 \
-            --json title,number,milestone,state,createdAt,updatedAt,url \
-            --jq '.[] | "- [\(.title)](\(.url)) (Milestone: \(.milestone.title // "None"), State: \(.state), Updated: \(.updatedAt))"' \
-            >> report.md
+            function formatStatus(state) {
+              if (state === 'open') return '⏳ Open';
+              if (state === 'closed') return '✅ Closed';
+              return '🚧 In Progress';
+            }
 
-          echo "" >> report.md
-          echo "### Recent Pull Requests" >> report.md
-          gh pr list --repo "$REPO" --limit 20 \
-            --json title,number,state,createdAt,updatedAt,url \
-            --jq '.[] | "- [\(.title)](\(.url)) (State: \(.state), Updated: \(.updatedAt))"' \
-            >> report.md
+            // Build table header
+            let table = `**📌 Daily Project Status – ${repoName}**\n\n`;
+            table += `| Task / Description | Last Comment | Due Date | Status | Last Updated |\n`;
+            table += `|--------------------|--------------|----------|--------|--------------|\n`;
+
+            for (const issue of issues) {
+              const comments = await github.paginate(
+                github.rest.issues.listComments,
+                {
+                  owner,
+                  repo: repoName,
+                  issue_number: issue.number,
+                  per_page: 100
+                }
+              );
+              const lastComment = comments.length > 0
+                ? comments[comments.length - 1].body.replace(/\r?\n|\r/g, " ").slice(0, 50) + "..."
+                : "—";
+
+              const dueDate = issue.milestone?.due_on
+                ? new Date(issue.milestone.due_on).toISOString().split('T')[0]
+                : "—";
+
+              table += `| ${issue.title} | ${lastComment} | ${dueDate} | ${formatStatus(issue.state)} | ${new Date(issue.updated_at).toISOString().replace('T',' ').slice(0,16)} |\n`;
+            }
+
+            core.setOutput("report", table);
 
       - name: Send to Microsoft Teams
-        env:
-          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
-        run: |
-          payload=$(jq -Rs '{text: .}' report.md)
-          curl -H "Content-Type: application/json" \
-               -d "$payload" \
-               "$TEAMS_WEBHOOK_URL"
+        uses: fjogeleit/http-request-action@v1
+        with:
+          url: ${{ secrets.MS_TEAMS_WEBHOOK_URL }}
+          method: 'POST'
+          contentType: 'application/json'
+          data: |
+            {
+              "text": "${{ steps.generate.outputs.report }}"
+            }
