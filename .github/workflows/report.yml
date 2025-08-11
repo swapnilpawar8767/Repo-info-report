@@ -2,16 +2,13 @@ name: Daily Repo Report to Teams
 
 on:
   schedule:
-    - cron: "0 9 * * *" # Runs daily at 09:00 UTC (adjust as needed)
+    - cron: "0 9 * * *" # Daily at 09:00 UTC (adjust as needed)
   workflow_dispatch: # Manual trigger
 
 jobs:
-  generate-report:
+  send-report:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -25,12 +22,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         run: |
+          python << 'EOF'
           import requests, os, datetime
 
           # ---------- CONFIG ----------
           repos = [
-              "https://github.com/swapnilpawar8767/Repo-info-report/"
-              
+              "swapnilpawar8767/Repo-info-report"  # Format: owner/repo
           ]
           headers = {
               "Authorization": f"token {os.environ['GITHUB_TOKEN']}",
@@ -50,7 +47,7 @@ jobs:
 
               for issue in issues:
                   if "pull_request" in issue:
-                      continue  # skip PRs, only issues
+                      continue  # Skip PRs
 
                   task_name = issue.get("title", "")
                   status = issue.get("state", "")
@@ -60,18 +57,16 @@ jobs:
                   if issue.get("milestone") and issue["milestone"].get("due_on"):
                       due_date = issue["milestone"]["due_on"][:10]
 
-                  # Get last comment if exists
-                  comments_url = issue.get("comments_url")
-                  last_comment = ""
+                  last_comment = "No comments"
                   if issue.get("comments", 0) > 0:
-                      comments = requests.get(comments_url, headers=headers).json()
+                      comments = requests.get(issue["comments_url"], headers=headers).json()
                       if comments:
                           last_comment = comments[-1].get("body", "").replace("\n", " ")
                           if len(last_comment) > 50:
                               last_comment = last_comment[:47] + "..."
 
                   report_lines.append(
-                      f"| {repo} | {task_name} | {last_comment or 'No comments'} | {due_date or '-'} | {status} | {updated_at} |"
+                      f"| {repo} | {task_name} | {last_comment} | {due_date or '-'} | {status} | {updated_at} |"
                   )
 
           report_md = "\n".join(report_lines)
@@ -89,3 +84,5 @@ jobs:
 
           resp = requests.post(os.environ["TEAMS_WEBHOOK_URL"], json=payload)
           resp.raise_for_status()
+          print("✅ Report sent to Teams successfully!")
+          EOF
