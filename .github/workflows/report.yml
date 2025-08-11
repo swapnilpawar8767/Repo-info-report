@@ -1,77 +1,78 @@
 name: Daily Project Status Report
 
 on:
+  workflow_dispatch:
   schedule:
-    - cron: "0 9 * * *"  # Runs every day at 9:00 AM UTC
-  workflow_dispatch:    # Allow manual trigger
+    - cron: "0 5 * * *" # Runs daily at 05:00 UTC
 
 jobs:
-  report:
+  send-status-report:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Generate Project Report
-        id: generate
-        uses: actions/github-script@v6
+      - name: Get Issues and Pull Requests
+        id: get_data
+        uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const repoName = context.repo.repo;
+            const repo = context.repo.repo;
             const owner = context.repo.owner;
 
-            // Fetch issues (including PRs)
-            const issues = await github.paginate(
-              github.rest.issues.listForRepo,
-              {
-                owner,
-                repo: repoName,
-                state: 'all', // open + closed
-                per_page: 100
-              }
-            );
+            // Fetch open and closed issues
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: 'all',
+              per_page: 100
+            });
 
-            function formatStatus(state) {
-              if (state === 'open') return '⏳ Open';
-              if (state === 'closed') return '✅ Closed';
-              return '🚧 In Progress';
-            }
-
-            // Build table header
-            let table = `**📌 Daily Project Status – ${repoName}**\n\n`;
-            table += `| Task / Description | Last Comment | Due Date | Status | Last Updated |\n`;
-            table += `|--------------------|--------------|----------|--------|--------------|\n`;
-
-            for (const issue of issues) {
-              const comments = await github.paginate(
-                github.rest.issues.listComments,
-                {
-                  owner,
-                  repo: repoName,
-                  issue_number: issue.number,
-                  per_page: 100
-                }
-              );
-              const lastComment = comments.length > 0
-                ? comments[comments.length - 1].body.replace(/\r?\n|\r/g, " ").slice(0, 50) + "..."
-                : "—";
-
+            const rows = issues.map(issue => {
+              const lastUpdated = new Date(issue.updated_at).toISOString().replace('T', ' ').slice(0, 16);
               const dueDate = issue.milestone?.due_on
                 ? new Date(issue.milestone.due_on).toISOString().split('T')[0]
-                : "—";
+                : '—';
+              const status = issue.state === 'open' ? '⏳ Open' : '✅ Closed';
+              const lastComment = issue.comments > 0 ? issue.comments_url : '—';
 
-              table += `| ${issue.title} | ${lastComment} | ${dueDate} | ${formatStatus(issue.state)} | ${new Date(issue.updated_at).toISOString().replace('T',' ').slice(0,16)} |\n`;
-            }
+              return `| ${issue.title} | ${lastComment} | ${dueDate} | ${status} | ${lastUpdated} |`;
+            }).join("\n");
 
-            core.setOutput("report", table);
+            const header = `**📌 Daily Project Status – ${repo}**\n\n` +
+              "| Task / Description | Last Comment | Due Date | Status | Last Updated |\n" +
+              "|--------------------|--------------|----------|--------|--------------|\n";
+
+            return header + rows;
 
       - name: Send to Microsoft Teams
         uses: fjogeleit/http-request-action@v1
         with:
           url: ${{ secrets.TEAMS_WEBHOOK_URL }}
-          method: 'POST'
-          contentType: 'application/json'
+          method: POST
+          contentType: application/json
           data: |
             {
-              "text": "${{ steps.generate.outputs.report }}"
+              "type": "message",
+              "attachments": [
+                {
+                  "contentType": "application/vnd.microsoft.card.adaptive",
+                  "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                      {
+                        "type": "TextBlock",
+                        "size": "Large",
+                        "weight": "Bolder",
+                        "text": "📌 Daily Project Status – ${{ github.event.repository.name }}"
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "${{ steps.get_data.outputs.result }}",
+                        "wrap": true
+                      }
+                    ]
+                  }
+                }
+              ]
             }
