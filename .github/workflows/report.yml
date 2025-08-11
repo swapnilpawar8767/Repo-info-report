@@ -28,7 +28,7 @@ jobs:
           import datetime
 
           repos = [
-              "swapnilpawar8767/Repo-info-report"  # Add more repos here if needed
+              "swapnilpawar8767/Repo-info-report"  # Add more repos here
           ]
 
           headers = {
@@ -39,7 +39,7 @@ jobs:
           report_date = datetime.date.today()
           separator = "──────────────────────────────"
 
-          # Start report lines list
+          # Build the report lines list
           report_lines = [f"📊 Daily GitHub Repo Report - {report_date}", ""]
 
           for repo in repos:
@@ -54,10 +54,6 @@ jobs:
                       continue  # skip PRs
 
                   title = issue.get("title", "")
-                  issue_number = issue.get("number")
-                  issue_url = f"https://github.com/{repo}/issues/{issue_number}"
-                  title_link = f"[{title}]({issue_url})"
-
                   status_raw = issue.get("state", "").lower()
                   status = "🆕 Open" if status_raw == "open" else "Closed"
                   updated_at = issue.get("updated_at", "")[:10]
@@ -76,24 +72,23 @@ jobs:
                           if len(last_comment) > 50:
                               last_comment = last_comment[:47] + "..."
 
-                  # Format block for each issue with explicit newlines
-                  block = (
-                      f"{separator}\n"
-                      f"📌 {title_link} ({repo})\n"
-                      f"Last Comment :: {last_comment}\n"
-                      f"Due Date     :: {due_date}\n"
-                      f"Status       :: {status}\n"
-                      f"Last Updated :: {updated_at}\n\n"
-                  )
-                  report_lines.append(block)
+                  # Append issue block with explicit newlines and extra spacing for Teams
+                  report_lines.append(separator)
+                  report_lines.append(f"📌 {title} ({repo})")
+                  report_lines.append(f"Last Comment :: {last_comment}")
+                  report_lines.append(f"Due Date     :: {due_date}")
+                  report_lines.append(f"Status       :: {status}")
+                  report_lines.append(f"Last Updated :: {updated_at}")
+                  report_lines.append("")  # blank line for spacing
 
           report_lines.append(separator)
 
+          # Join with \n for new lines
           final_report = "\n".join(report_lines)
 
-          # Send as plain markdown for clickable links and spacing
+          # Wrap report in triple backticks to render as code block in Teams for preserving format
           payload = {
-              "text": final_report
+              "text": f"```\n{final_report}\n```"
           }
 
           resp = requests.post(os.environ["TEAMS_WEBHOOK_URL"], json=payload)
