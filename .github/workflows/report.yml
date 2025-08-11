@@ -87,7 +87,7 @@ jobs:
                   # Add each issue section with proper formatting
                   message_parts.append(f"""
           {separator}
-          📌 **[{title}]({issue_url})** (**{repo}**)\n
+          📌 **[{title}]({issue_url})** (**{repo}**)
           **Last Comment** :: {last_comment}  
           **Due Date**     :: {due_date}  
           **Status**       :: {status}  
