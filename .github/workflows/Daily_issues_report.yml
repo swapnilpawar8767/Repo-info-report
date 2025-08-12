@@ -19,8 +19,8 @@ jobs:
 
       - name: Generate and send report
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPORT_WEBHOOK_URL: ${{ secrets.REPORT_WEBHOOK_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}          # ✅ Secret
+          REPORT_WEBHOOK_URL: ${{ secrets.REPORT_WEBHOOK_URL }} # ✅ Secret
         run: |
           python << 'EOF'
           import requests
