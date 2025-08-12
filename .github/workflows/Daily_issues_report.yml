@@ -1,8 +1,8 @@
-name: Daily GitHub Repo Report
+name: Weekly GitHub Repo Report
 
 on:
   schedule:
-    - cron: "30 2 * * *"  # Daily at 08:00 IST (2:30 AM UTC)
+    - cron: "30 2 * * 1"  # Every Monday at 08:00 IST (2:30 AM UTC)
   workflow_dispatch:
 
 jobs:
@@ -19,8 +19,8 @@ jobs:
 
       - name: Generate and send report
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
-          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT_WEBHOOK_URL: ${{ secrets.REPORT_WEBHOOK_URL }}
         run: |
           python << 'EOF'
           import requests
@@ -29,9 +29,7 @@ jobs:
           import pytz
 
           repos = [
-              "ZySec-AI/cpod-backend"
-              "ZySec-AI/cyberpod"
-              "ZySec-AI/cpod-ui"
+              "swapnilpawar8767/Repo-info-report"
           ]
 
           headers = {
@@ -43,36 +41,41 @@ jobs:
           separator = "──────────────────────────────\n"
           IST = pytz.timezone('Asia/Kolkata')
 
+          # Calculate date 7 days ago in UTC for filtering
+          now_utc = datetime.datetime.now(datetime.timezone.utc)
+          seven_days_ago = now_utc - datetime.timedelta(days=7)
+
           message_parts = []
-          message_parts.append(f"📊 Daily GitHub Repo Report - {report_date}\n\n")
+          message_parts.append(f"📊 Weekly GitHub Repo Report - {report_date}\n\n")
 
           for repo in repos:
-              # Add repo name heading centered with bold, surrounded by separators
               repo_header = f"\n{separator}\n\n{' ' * 15}**{repo.upper()}**\n\n{separator}\n"
               message_parts.append(repo_header)
 
               response = requests.get(
-                  f"https://api.github.com/repos/{repo}/issues?state=all&per_page=5&sort=updated",
+                  f"https://api.github.com/repos/{repo}/issues?state=all&per_page=50&sort=updated",
                   headers=headers,
               )
               issues = response.json()
 
-              for idx, issue in enumerate(issues):
+              for issue in issues:
                   if "pull_request" in issue:
                       continue
-
-                  title = issue.get("title", "")
-                  issue_url = issue.get("html_url", "")
-                  status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
 
                   updated_at_raw = issue.get("updated_at", "")
                   try:
                       dt_utc = datetime.datetime.strptime(updated_at_raw, "%Y-%m-%dT%H:%M:%SZ")
                       dt_utc = dt_utc.replace(tzinfo=datetime.timezone.utc)
+                      if dt_utc < seven_days_ago:
+                          continue  # Skip issues older than 7 days
                       dt_ist = dt_utc.astimezone(IST)
                       updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
                   except Exception:
                       updated_at = updated_at_raw
+
+                  title = issue.get("title", "")
+                  issue_url = issue.get("html_url", "")
+                  status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
 
                   due_date = "-"
                   if issue.get("milestone") and issue["milestone"].get("due_on"):
@@ -101,7 +104,7 @@ jobs:
               "markdown": True
           }
 
-          resp = requests.post(os.environ["TEAMS_WEBHOOK_URL"], json=payload)
+          resp = requests.post(os.environ["REPORT_WEBHOOK_URL"], json=payload)
           resp.raise_for_status()
-          print("✅ Report sent to Teams successfully!")
+          print("✅ Weekly report sent to Teams successfully!")
           EOF
