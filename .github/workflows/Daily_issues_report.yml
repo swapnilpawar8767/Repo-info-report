@@ -1,4 +1,4 @@
-name: Weekly GitHub Repo Report
+name: Daily GitHub Repo Report
 
 on:
   schedule:
@@ -39,76 +39,74 @@ jobs:
               "Accept": "application/vnd.github.v3+json"
           }
 
-          IST = pytz.timezone('Asia/Kolkata')
-          today_ist = datetime.datetime.now(IST)
-          seven_days_ago = today_ist - datetime.timedelta(days=7)
-
-          report_date = today_ist.date()
+          report_date = datetime.date.today()
           separator = "──────────────────────────────\n"
+          IST = pytz.timezone('Asia/Kolkata')
+          
+          # Calculate date 7 days ago
+          seven_days_ago = datetime.datetime.now(IST) - datetime.timedelta(days=7)
 
           message_parts = []
-          message_parts.append(f"📊 Weekly GitHub Repo Report - Week Ending {report_date}\n\n")
+          message_parts.append(f"📊 Weekly GitHub Repo Report - {report_date}\n\n")
+          message_parts.append(f"Showing issues updated in the last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n\n")
 
           for repo in repos:
+              # Add repo name heading centered with bold, surrounded by separators
               repo_header = f"\n{separator}\n\n{' ' * 15}**{repo.upper()}**\n\n{separator}\n"
               message_parts.append(repo_header)
 
-              # GitHub Search API for issues updated in last 7 days
-              query = f"repo:{repo} updated:>={seven_days_ago.strftime('%Y-%m-%d')}"
+              response = requests.get(
+                  f"https://api.github.com/repos/{repo}/issues?state=all&per_page=100&sort=updated",
+                  headers=headers,
+              )
+              issues = response.json()
 
-              search_url = "https://api.github.com/search/issues"
-              params = {
-                  "q": query,
-                  "sort": "updated",
-                  "order": "desc",
-                  "per_page": 10
-              }
+              has_recent_issues = False
 
-              response = requests.get(search_url, headers=headers, params=params)
-              response.raise_for_status()
-              items = response.json().get("items", [])
-
-              for issue in items:
-                  # Skip pull requests
+              for idx, issue in enumerate(issues):
                   if "pull_request" in issue:
                       continue
-
-                  title = issue.get("title", "")
-                  issue_url = issue.get("html_url", "")
-                  status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
 
                   updated_at_raw = issue.get("updated_at", "")
                   try:
                       dt_utc = datetime.datetime.strptime(updated_at_raw, "%Y-%m-%dT%H:%M:%SZ")
                       dt_utc = dt_utc.replace(tzinfo=datetime.timezone.utc)
                       dt_ist = dt_utc.astimezone(IST)
-                      updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
                   except Exception:
-                      updated_at = updated_at_raw
+                      continue
+
+                  # Skip issues not updated in the last 7 days
+                  if dt_ist < seven_days_ago:
+                      continue
+
+                  has_recent_issues = True
+                  title = issue.get("title", "")
+                  issue_url = issue.get("html_url", "")
+                  status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
+                  updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
 
                   due_date = "-"
-                  milestone = issue.get("milestone")
-                  if milestone and milestone.get("due_on"):
-                      due_date = milestone["due_on"][:10]
+                  if issue.get("milestone") and issue["milestone"].get("due_on"):
+                      due_date = issue["milestone"]["due_on"][:10]
 
                   last_comment = "No comments"
                   if issue.get("comments", 0) > 0:
                       comments_response = requests.get(issue["comments_url"], headers=headers)
-                      comments_response.raise_for_status()
                       comments = comments_response.json()
                       if comments:
                           last_comment = comments[-1].get("body", "").replace("\n", " ")
                           if len(last_comment) > 50:
                               last_comment = last_comment[:47] + "..."
 
-                  message_parts.append(
-                      f"📌 **[{title}]({issue_url})**  \n"
-                      f"**Last Comment** :: {last_comment}  \n"
-                      f"**Due Date**     :: {due_date}  \n"
-                      f"**Status**       :: {status}  \n"
-                      f"**Last Updated** :: {updated_at}  \n"
-                      f"{separator}\n"
-                  )
+                  message_parts.append(f"📌 **[{title}]({issue_url})**  \n"
+                                     f"**Last Comment** :: {last_comment}  \n"
+                                     f"**Due Date**     :: {due_date}  \n"
+                                     f"**Status**       :: {status}  \n"
+                                     f"**Last Updated** :: {updated_at}  \n"
+                                     f"{separator}\n")
+
+              if not has_recent_issues:
+                  message_parts.append(f"No issues updated in the last 7 days\n{separator}\n")
 
           final_message = "".join(message_parts)
 
