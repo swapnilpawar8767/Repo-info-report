@@ -19,8 +19,8 @@ jobs:
 
       - name: Generate and send report
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}          # ✅ Secret
-          REPORT_WEBHOOK_URL: ${{ secrets.REPORT_WEBHOOK_URL }} # ✅ Secret
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}          # ✅ Secret provided automatically
+          REPORT_WEBHOOK_URL: ${{ secrets.REPORT_WEBHOOK_URL }} # ✅ Your Teams webhook secret
         run: |
           python << 'EOF'
           import requests
@@ -41,8 +41,9 @@ jobs:
           separator = "──────────────────────────────\n"
           IST = pytz.timezone('Asia/Kolkata')
 
-          # Calculate date 7 days ago in UTC for filtering
+          # Current UTC datetime
           now_utc = datetime.datetime.now(datetime.timezone.utc)
+          # Timestamp 7 days ago UTC
           seven_days_ago = now_utc - datetime.timedelta(days=7)
 
           message_parts = []
@@ -52,26 +53,30 @@ jobs:
               repo_header = f"\n{separator}\n\n{' ' * 15}**{repo.upper()}**\n\n{separator}\n"
               message_parts.append(repo_header)
 
+              # Fetch issues sorted by updated desc, max 100 per page for safety
               response = requests.get(
-                  f"https://api.github.com/repos/{repo}/issues?state=all&per_page=50&sort=updated",
+                  f"https://api.github.com/repos/{repo}/issues?state=all&per_page=100&sort=updated&direction=desc",
                   headers=headers,
               )
               issues = response.json()
 
               for issue in issues:
+                  # Skip PRs
                   if "pull_request" in issue:
                       continue
 
                   updated_at_raw = issue.get("updated_at", "")
                   try:
-                      dt_utc = datetime.datetime.strptime(updated_at_raw, "%Y-%m-%dT%H:%M:%SZ")
-                      dt_utc = dt_utc.replace(tzinfo=datetime.timezone.utc)
-                      if dt_utc < seven_days_ago:
-                          continue  # Skip issues older than 7 days
-                      dt_ist = dt_utc.astimezone(IST)
-                      updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
+                      dt_utc = datetime.datetime.strptime(updated_at_raw, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
                   except Exception:
-                      updated_at = updated_at_raw
+                      continue
+
+                  # Skip issues updated before 7 days ago
+                  if dt_utc < seven_days_ago:
+                      continue
+
+                  dt_ist = dt_utc.astimezone(IST)
+                  updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
 
                   title = issue.get("title", "")
                   issue_url = issue.get("html_url", "")
