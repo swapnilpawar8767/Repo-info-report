@@ -30,10 +30,6 @@ jobs:
           import pytz
 
           repos = [
-              "ZySec-AI/cyberpod-readiness",
-              "ZySec-AI/cpod-backend",
-              "ZySec-AI/cyberpod",
-              "ZySec-AI/cpod-ui",
               "swapnilpawar8767/Repo-info-report"
           ]
 
@@ -136,7 +132,7 @@ jobs:
                       f"**Status**       :: {status}  \n"
                       f"**Milestone**    :: {milestone_name}  \n"
                       f"**Last Updated** :: {updated_at}  \n"
-                      f"{separator}\n"
+                      f"{separator}  \n"
                   )
 
               if not has_recent_issues:
@@ -144,7 +140,7 @@ jobs:
 
               # Per-repo summary box
               message_parts.append(
-                  f"{separator}"
+                  
                   f"📊 **Summary (last 7 days)**  \n"
                   f"Open Issues   :: {open_count}  \n"
                   f"Closed Issues :: {closed_count}  \n"
