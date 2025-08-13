@@ -19,8 +19,7 @@ jobs:
 
       - name: Generate and send report
         env:
-          GHPT_PAT: ${{ secrets.GHPT_PAT }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DILESH_PAT_TOKEN: ${{ secrets.DILESH_PAT_TOKEN }}
           REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}
         run: |
           python << 'EOF'
@@ -33,10 +32,10 @@ jobs:
               "swapnilpawar8767/Repo-info-report"
           ]
 
-          # Choose token: Prefer GHPT_PAT, fallback to GITHUB_TOKEN
-          token = os.environ.get("GHPT_PAT") or os.environ.get("GITHUB_TOKEN")
+          # Use only one token from secrets.DILESH_PAT_TOKEN
+          token = os.environ.get("DILESH_PAT_TOKEN")
           if not token:
-              print("❌ No token found in GHPT_PAT or GITHUB_TOKEN. Exiting.")
+              print("❌ No token found in DILESH_PAT_TOKEN. Exiting.")
               exit(1)
 
           headers = {
@@ -140,7 +139,6 @@ jobs:
 
               # Per-repo summary box
               message_parts.append(
-                  
                   f"📊 **Summary (last 7 days)**  \n"
                   f"Open Issues   :: {open_count}  \n"
                   f"Closed Issues :: {closed_count}  \n"
