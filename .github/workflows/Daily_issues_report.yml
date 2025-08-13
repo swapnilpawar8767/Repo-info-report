@@ -29,8 +29,7 @@ jobs:
           import pytz
 
           repos = [
-              "swapnilpawar8767/Repo-info-report",
-              "swapnilpawar8767/env-test"
+              "swapnilpawar8767/Repo-info-repor"
           ]
 
           # Use only one token from secrets.DILESH_PAT_TOKEN
