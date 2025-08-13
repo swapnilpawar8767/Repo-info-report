@@ -35,7 +35,7 @@ jobs:
           # Repos to report on
           repos = [
               "swapnilpawar8767/Repo-info-report",
-              "swapnilpawar8767/oc-project"
+              "swapnilpawar8767/oc-project",
               "swapnilpawar8767/env-test"
           ]
 
