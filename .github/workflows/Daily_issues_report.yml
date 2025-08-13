@@ -19,7 +19,8 @@ jobs:
 
       - name: Generate and send report
         env:
-          GITHUB_TOKEN: ${{ secrets.GHPT_PAT }}
+          GHPT_PAT: ${{ secrets.GHPT_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}
         run: |
           python << 'EOF'
@@ -32,8 +33,14 @@ jobs:
               "swapnilpawar8767/Repo-info-report"
           ]
 
+          # Choose token: Prefer GHPT_PAT, fallback to GITHUB_TOKEN
+          token = os.environ.get("GHPT_PAT") or os.environ.get("GITHUB_TOKEN")
+          if not token:
+              print("❌ No token found in GHPT_PAT or GITHUB_TOKEN. Exiting.")
+              exit(1)
+
           headers = {
-              "Authorization": f"token {os.environ['GITHUB_TOKEN']}",
+              "Authorization": f"token {token}",
               "Accept": "application/vnd.github.v3+json"
           }
 
@@ -55,6 +62,9 @@ jobs:
               url = f"https://api.github.com/repos/{repo}/issues?state=all&since={seven_days_ago_iso}&per_page=100&sort=updated"
               try:
                   response = requests.get(url, headers=headers)
+                  if response.status_code == 401:
+                      message_parts.append(f"⚠️ Unauthorized to fetch issues for {repo}. Check token permissions.\n{separator}\n")
+                      continue
                   response.raise_for_status()
                   issues = response.json()
               except Exception as e:
@@ -104,12 +114,16 @@ jobs:
 
                   last_comment = "No comments"
                   if issue.get("comments", 0) > 0:
-                      comments_response = requests.get(issue["comments_url"], headers=headers)
-                      comments = comments_response.json()
-                      if comments:
-                          last_comment = comments[-1].get("body", "").replace("\n", " ")
-                          if len(last_comment) > 50:
-                              last_comment = last_comment[:47] + "..."
+                      try:
+                          comments_response = requests.get(issue["comments_url"], headers=headers)
+                          comments_response.raise_for_status()
+                          comments = comments_response.json()
+                          if comments:
+                              last_comment = comments[-1].get("body", "").replace("\n", " ")
+                              if len(last_comment) > 50:
+                                  last_comment = last_comment[:47] + "..."
+                      except:
+                          last_comment = "Failed to fetch comments"
 
                   message_parts.append(
                       f"📌 **#{issue_number} [{title}]({issue_url})**  \n"
@@ -141,7 +155,10 @@ jobs:
               exit(1)
 
           payload = {"text": final_message, "markdown": True}
-          resp = requests.post(webhook_url, json=payload)
-          resp.raise_for_status()
-          print("✅ Report sent to Teams successfully!")
+          try:
+              resp = requests.post(webhook_url, json=payload)
+              resp.raise_for_status()
+              print("✅ Report sent to Teams successfully!")
+          except Exception as e:
+              print(f"❌ Failed to send report to Teams: {e}")
           EOF
