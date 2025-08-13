@@ -42,7 +42,8 @@ jobs:
           date_str = yesterday_start.strftime('%Y-%m-%d')
 
           repositories = [
-              'swapnilpawar8767/Repo-info-report'
+              'swapnilpawar8767/Repo-info-report',
+              'swapnilpawar8767/separate-env-project'
 
           ]
 
