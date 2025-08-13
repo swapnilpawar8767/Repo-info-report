@@ -30,7 +30,8 @@ jobs:
 
           repos = [
               "swapnilpawar8767/Repo-info-report",
-              "swapnilpawar8767/env-test"
+              "swapnilpawar8767/env-test",
+              "swapnilpawar8767/oc-project"
           ]
 
           headers = {
