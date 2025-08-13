@@ -20,7 +20,7 @@ jobs:
       - name: Generate and send report
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPORT_WEBHOOK_URL: ${{ secrets.REPORT_WEBHOOK_URL }}
+          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}
         run: |
           python << 'EOF'
           import requests
@@ -29,8 +29,8 @@ jobs:
           import pytz
 
           repos = [
-              "swapnilpawar8767/env-test",
               "swapnilpawar8767/Repo-info-report"
+              "swapnilpawar8767/env-test"
           ]
 
           headers = {
@@ -42,7 +42,7 @@ jobs:
           report_date = datetime.date.today()
           separator = "──────────────────────────────\n"
 
-          # Calculate date 7 days ago
+          # 7 days ago
           seven_days_ago = datetime.datetime.now(IST) - datetime.timedelta(days=7)
           seven_days_ago_iso = seven_days_ago.isoformat()
 
@@ -78,7 +78,6 @@ jobs:
                   except:
                       continue
 
-                  # Skip issues not updated in the last 7 days (just in case)
                   if dt_ist < seven_days_ago:
                       continue
 
@@ -88,13 +87,11 @@ jobs:
                   status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
                   updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
 
-                  # Milestone due date
                   milestone = issue.get("milestone")
                   due_date = "-"
                   if isinstance(milestone, dict):
                       due_date = milestone.get("due_on", "-")[:10] if milestone.get("due_on") else "-"
 
-                  # Last comment
                   last_comment = "No comments"
                   if issue.get("comments", 0) > 0:
                       comments_response = requests.get(issue["comments_url"], headers=headers)
@@ -116,7 +113,6 @@ jobs:
 
           final_message = "".join(message_parts)
 
-          # Send report to Teams webhook
           webhook_url = os.environ.get("REPORT_WEBHOOK_URL")
           if not webhook_url:
               print("❌ REPORT_WEBHOOK_URL is empty. Exiting.")
