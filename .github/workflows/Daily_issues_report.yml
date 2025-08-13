@@ -139,12 +139,13 @@ jobs:
 
               # Fixed summary formatting with top & bottom lines
               message_parts.append(
-                  f"{separator}"
-                  f"📊 Summary (last 7 days)\n"
-                  f"Open Issues   :: {open_count}\n"
-                  f"Closed Issues :: {closed_count}\n"
-                  f"{separator}"
-              )
+                    f"{separator}"
+                    f"📊 Summary (last 7 days)\\n"
+                    f"Open Issues   :: {open_count}\\n"
+                    f"Closed Issues :: {closed_count}\\n"
+                    f"{separator}"
+                )
+
 
           final_message = "".join(message_parts)
 
