@@ -1,22 +1,14 @@
-name: Daily GitHub Repo Report - Last 7 Days
+name: Weekly GitHub Repo Report
 
 on:
   schedule:
-    - cron: "30 2 * * *"  # Daily at 08:00 IST (2:30 AM UTC)
+    - cron: "30 2 * * 1"  # Every Monday at 08:00 IST (2:30 AM UTC)
   workflow_dispatch:
-
-permissions:
-  issues: read
-  contents: read
 
 jobs:
   send-report:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -27,8 +19,8 @@ jobs:
 
       - name: Generate and send report
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Use the same token your TL uses
-          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}  # Same as TL
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}  # Use vars here
         run: |
           python << 'EOF'
           import requests
@@ -36,100 +28,98 @@ jobs:
           import datetime
           import pytz
 
-          # List of repos to fetch issues from
           repos = [
               "swapnilpawar8767/Repo-info-report",
               "swapnilpawar8767/env-test",
-              "swapnilpawar8767/oc-project"
+              "swapnilpawar8767/oc-project/"
           ]
 
-          token = os.environ['GITHUB_TOKEN']
           headers = {
-              "Authorization": f"token {token}",
+              "Authorization": f"token {os.environ['GITHUB_TOKEN']}",
               "Accept": "application/vnd.github.v3+json"
           }
 
           IST = pytz.timezone('Asia/Kolkata')
-          today_utc = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
-          seven_days_ago_utc = today_utc - datetime.timedelta(days=7)
-
           report_date = datetime.date.today()
           separator = "──────────────────────────────\n"
 
+          seven_days_ago = datetime.datetime.now(IST) - datetime.timedelta(days=7)
+          seven_days_ago_iso = seven_days_ago.isoformat()
+
           message_parts = []
-          message_parts.append(f"📊 GitHub Repo Report - Last 7 Days (Up to {report_date})\n\n")
+          message_parts.append(f"📊 Weekly GitHub Repo Report - {report_date}\n\n")
+          message_parts.append(f"Showing issues updated in the last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n\n")
 
           for repo in repos:
               repo_header = f"\n{separator}\n\n{' ' * 15}**{repo.upper()}**\n\n{separator}\n"
               message_parts.append(repo_header)
 
-              page = 1
-              per_page = 100
-              while True:
-                  response = requests.get(
-                      f"https://api.github.com/repos/{repo}/issues?state=all&per_page={per_page}&page={page}&sort=updated",
-                      headers=headers,
-                  )
+              url = f"https://api.github.com/repos/{repo}/issues?state=all&since={seven_days_ago_iso}&per_page=100&sort=updated"
+              try:
+                  response = requests.get(url, headers=headers)
+                  response.raise_for_status()
                   issues = response.json()
-                  if not issues:
-                      break
+              except Exception as e:
+                  message_parts.append(f"Failed to fetch issues for {repo}: {e}\n{separator}\n")
+                  continue
 
-                  for issue in issues:
-                      if "pull_request" in issue:
-                          continue
+              has_recent_issues = False
+              for issue in issues:
+                  if "pull_request" in issue:
+                      continue
 
-                      updated_at_raw = issue.get("updated_at", "")
-                      try:
-                          dt_utc = datetime.datetime.strptime(updated_at_raw, "%Y-%m-%dT%H:%M:%SZ")
-                          dt_utc = dt_utc.replace(tzinfo=datetime.timezone.utc)
-                      except Exception:
-                          continue
-
-                      # Only include issues updated in the last 7 days
-                      if dt_utc < seven_days_ago_utc:
-                          continue
-
-                      title = issue.get("title", "")
-                      issue_url = issue.get("html_url", "")
-                      status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
-
+                  updated_at_raw = issue.get("updated_at")
+                  if not updated_at_raw:
+                      continue
+                  try:
+                      dt_utc = datetime.datetime.strptime(updated_at_raw, "%Y-%m-%dT%H:%M:%SZ")
+                      dt_utc = dt_utc.replace(tzinfo=datetime.timezone.utc)
                       dt_ist = dt_utc.astimezone(IST)
-                      updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
+                  except:
+                      continue
 
-                      due_date = "-"
-                      if issue.get("milestone") and issue["milestone"].get("due_on"):
-                          due_date = issue["milestone"]["due_on"][:10]
+                  if dt_ist < seven_days_ago:
+                      continue
 
-                      last_comment = "No comments"
-                      if issue.get("comments", 0) > 0:
-                          comments_response = requests.get(issue["comments_url"], headers=headers)
-                          comments = comments_response.json()
-                          if comments:
-                              last_comment = comments[-1].get("body", "").replace("\n", " ")
-                              if len(last_comment) > 50:
-                                  last_comment = last_comment[:47] + "..."
+                  has_recent_issues = True
+                  title = issue.get("title", "")
+                  issue_url = issue.get("html_url", "")
+                  status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
+                  updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
 
-                      message_parts.append(f"📌 **[{title}]({issue_url})**  \n"
-                                           f"**Last Comment** :: {last_comment}  \n"
-                                           f"**Due Date**     :: {due_date}  \n"
-                                           f"**Status**       :: {status}  \n"
-                                           f"**Last Updated** :: {updated_at}  \n"
-                                           f"{separator}\n")
+                  milestone = issue.get("milestone")
+                  due_date = "-"
+                  if isinstance(milestone, dict):
+                      due_date = milestone.get("due_on", "-")[:10] if milestone.get("due_on") else "-"
 
-                  if len(issues) < per_page:
-                      break
-                  page += 1
+                  last_comment = "No comments"
+                  if issue.get("comments", 0) > 0:
+                      comments_response = requests.get(issue["comments_url"], headers=headers)
+                      comments = comments_response.json()
+                      if comments:
+                          last_comment = comments[-1].get("body", "").replace("\n", " ")
+                          if len(last_comment) > 50:
+                              last_comment = last_comment[:47] + "..."
+
+                  message_parts.append(f"📌 **[{title}]({issue_url})**  \n"
+                                       f"**Last Comment** :: {last_comment}  \n"
+                                       f"**Due Date**     :: {due_date}  \n"
+                                       f"**Status**       :: {status}  \n"
+                                       f"**Last Updated** :: {updated_at}  \n"
+                                       f"{separator}\n")
+
+              if not has_recent_issues:
+                  message_parts.append(f"No issues updated in the last 7 days\n{separator}\n")
 
           final_message = "".join(message_parts)
 
-          webhook_url = os.environ.get("REPORT_WEBHOOK_URL", "")
+          webhook_url = os.environ.get("REPORT_WEBHOOK_URL")
           if not webhook_url:
-              print("Webhook URL not set, skipping send.")
-          else:
-              payload = {"text": final_message, "markdown": True}
-              resp = requests.post(webhook_url, json=payload)
-              if resp.status_code != 200:
-                  print(f"Failed to post report: {resp.status_code} {resp.text}")
-                  exit(1)
-              print("✅ Report sent to Teams successfully!")
+              print("❌ REPORT_WEBHOOK_URL is empty. Exiting.")
+              exit(1)
+
+          payload = {"text": final_message, "markdown": True}
+          resp = requests.post(webhook_url, json=payload)
+          resp.raise_for_status()
+          print("✅ Report sent to Teams successfully!")
           EOF
