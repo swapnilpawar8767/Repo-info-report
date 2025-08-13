@@ -1,4 +1,4 @@
-name: Weekly GitHub Repo Report (Last 7 Days)
+name: Daily GitHub Repo Report - Last 7 Days
 
 on:
   schedule:
@@ -6,13 +6,17 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
   issues: read
+  contents: read
 
 jobs:
   send-report:
     runs-on: ubuntu-latest
+
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -23,8 +27,8 @@ jobs:
 
       - name: Generate and send report
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}        # TL's token
-          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}  # TL's webhook
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Use the same token your TL uses
+          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}  # Same as TL
         run: |
           python << 'EOF'
           import requests
@@ -32,20 +36,21 @@ jobs:
           import datetime
           import pytz
 
-          # Repos to report on
+          # List of repos to fetch issues from
           repos = [
               "swapnilpawar8767/Repo-info-report",
-              "swapnilpawar8767/oc-project",
-              "swapnilpawar8767/env-test"
+              "swapnilpawar8767/env-test",
+              "swapnilpawar8767/oc-project"
           ]
 
+          token = os.environ['GITHUB_TOKEN']
           headers = {
-              "Authorization": f"token {os.environ['GITHUB_TOKEN']}",
+              "Authorization": f"token {token}",
               "Accept": "application/vnd.github.v3+json"
           }
 
           IST = pytz.timezone('Asia/Kolkata')
-          today_utc = datetime.datetime.now(datetime.timezone.utc)
+          today_utc = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
           seven_days_ago_utc = today_utc - datetime.timedelta(days=7)
 
           report_date = datetime.date.today()
@@ -65,24 +70,11 @@ jobs:
                       f"https://api.github.com/repos/{repo}/issues?state=all&per_page={per_page}&page={page}&sort=updated",
                       headers=headers,
                   )
-
-                  # Safety check for JSON parsing
-                  try:
-                      issues = response.json()
-                  except ValueError:
-                      print(f"Failed to parse JSON for {repo}: {response.text}")
-                      break
-
-                  if not isinstance(issues, list):
-                      print(f"Unexpected response for {repo}: {issues}")
-                      break
-
+                  issues = response.json()
                   if not issues:
                       break
 
                   for issue in issues:
-                      if not isinstance(issue, dict):
-                          continue
                       if "pull_request" in issue:
                           continue
 
@@ -111,10 +103,7 @@ jobs:
                       last_comment = "No comments"
                       if issue.get("comments", 0) > 0:
                           comments_response = requests.get(issue["comments_url"], headers=headers)
-                          try:
-                              comments = comments_response.json()
-                          except ValueError:
-                              comments = []
+                          comments = comments_response.json()
                           if comments:
                               last_comment = comments[-1].get("body", "").replace("\n", " ")
                               if len(last_comment) > 50:
@@ -133,15 +122,11 @@ jobs:
 
           final_message = "".join(message_parts)
 
-          payload = {
-              "text": final_message,
-              "markdown": True
-          }
-
           webhook_url = os.environ.get("REPORT_WEBHOOK_URL", "")
           if not webhook_url:
               print("Webhook URL not set, skipping send.")
           else:
+              payload = {"text": final_message, "markdown": True}
               resp = requests.post(webhook_url, json=payload)
               if resp.status_code != 200:
                   print(f"Failed to post report: {resp.status_code} {resp.text}")
