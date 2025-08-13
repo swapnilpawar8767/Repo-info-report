@@ -1,32 +1,39 @@
-name: Weekly GitHub Repo Report
+name: Weekly Issues Report for ZySec-AI Repos
 
 on:
   schedule:
     - cron: "30 2 * * 1"  # Every Monday at 08:00 IST (2:30 AM UTC)
   workflow_dispatch:
 
-jobs:
-  send-report:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
+permissions:
+  issues: read
+  contents: read
 
-      - name: Install dependencies
+jobs:
+  generate-issues-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python dependencies
         run: pip install requests pytz
 
-      - name: Generate and send report
+      - name: Generate Weekly Issues Report
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}  # Use vars here
         run: |
-          python << 'EOF'
-          import requests
+          python3 <<'EOF'
           import os
+          import requests
           import datetime
           import pytz
+
+          IST = pytz.timezone('Asia/Kolkata')
+          today = datetime.datetime.now(IST)
+          seven_days_ago = today - datetime.timedelta(days=7)
+          seven_days_ago_iso = seven_days_ago.isoformat()
 
           repos = [
               "swapnilpawar8767/Repo-info-report",
@@ -39,19 +46,13 @@ jobs:
               "Accept": "application/vnd.github.v3+json"
           }
 
-          IST = pytz.timezone('Asia/Kolkata')
-          report_date = datetime.date.today()
           separator = "──────────────────────────────\n"
-
-          seven_days_ago = datetime.datetime.now(IST) - datetime.timedelta(days=7)
-          seven_days_ago_iso = seven_days_ago.isoformat()
-
-          message_parts = []
-          message_parts.append(f"📊 Weekly GitHub Repo Report - {report_date}\n\n")
-          message_parts.append(f"Showing issues updated in the last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n\n")
+          report_date = today.strftime("%Y-%m-%d")
+          message_parts = [f"📊 Weekly GitHub Issues Report - {report_date}\n"]
+          message_parts.append(f"Showing issues updated in the last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n")
 
           for repo in repos:
-              repo_header = f"\n{separator}\n\n{' ' * 15}**{repo.upper()}**\n\n{separator}\n"
+              repo_header = f"\n{separator}\n**{repo.upper()}**\n{separator}\n"
               message_parts.append(repo_header)
 
               url = f"https://api.github.com/repos/{repo}/issues?state=all&since={seven_days_ago_iso}&per_page=100&sort=updated"
@@ -59,67 +60,76 @@ jobs:
                   response = requests.get(url, headers=headers)
                   response.raise_for_status()
                   issues = response.json()
-              except Exception as e:
-                  message_parts.append(f"Failed to fetch issues for {repo}: {e}\n{separator}\n")
+              except requests.exceptions.HTTPError as e:
+                  message_parts.append(f"Failed to fetch issues for {repo}: {e}\n")
                   continue
 
-              has_recent_issues = False
+              recent_issues_found = False
               for issue in issues:
                   if "pull_request" in issue:
+                      continue  # skip PRs
+
+                  updated_at = issue.get("updated_at")
+                  if not updated_at:
                       continue
 
-                  updated_at_raw = issue.get("updated_at")
-                  if not updated_at_raw:
-                      continue
-                  try:
-                      dt_utc = datetime.datetime.strptime(updated_at_raw, "%Y-%m-%dT%H:%M:%SZ")
-                      dt_utc = dt_utc.replace(tzinfo=datetime.timezone.utc)
-                      dt_ist = dt_utc.astimezone(IST)
-                  except:
-                      continue
+                  dt_utc = datetime.datetime.strptime(updated_at, "%Y-%m-%dT%H:%M:%SZ")
+                  dt_utc = dt_utc.replace(tzinfo=datetime.timezone.utc)
+                  dt_ist = dt_utc.astimezone(IST)
 
                   if dt_ist < seven_days_ago:
                       continue
 
-                  has_recent_issues = True
+                  recent_issues_found = True
                   title = issue.get("title", "")
-                  issue_url = issue.get("html_url", "")
-                  status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
-                  updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
+                  url = issue.get("html_url", "")
+                  status = "🆕 Open" if issue.get("state") == "open" else "Closed"
 
-                  milestone = issue.get("milestone")
-                  due_date = "-"
-                  if isinstance(milestone, dict):
-                      due_date = milestone.get("due_on", "-")[:10] if milestone.get("due_on") else "-"
+                  message_parts.append(
+                      f"- [#{issue['number']}]({url}) {title} | Status: {status} | Updated: {dt_ist.strftime('%Y-%m-%d %H:%M')}\n"
+                  )
 
-                  last_comment = "No comments"
-                  if issue.get("comments", 0) > 0:
-                      comments_response = requests.get(issue["comments_url"], headers=headers)
-                      comments = comments_response.json()
-                      if comments:
-                          last_comment = comments[-1].get("body", "").replace("\n", " ")
-                          if len(last_comment) > 50:
-                              last_comment = last_comment[:47] + "..."
+              if not recent_issues_found:
+                  message_parts.append("No issues updated in the last 7 days.\n")
 
-                  message_parts.append(f"📌 **[{title}]({issue_url})**  \n"
-                                       f"**Last Comment** :: {last_comment}  \n"
-                                       f"**Due Date**     :: {due_date}  \n"
-                                       f"**Status**       :: {status}  \n"
-                                       f"**Last Updated** :: {updated_at}  \n"
-                                       f"{separator}\n")
+          final_message = "\n".join(message_parts)
 
-              if not has_recent_issues:
-                  message_parts.append(f"No issues updated in the last 7 days\n{separator}\n")
+          with open("weekly_issues_report.md", "w") as f:
+              f.write(final_message)
+          EOF
 
-          final_message = "".join(message_parts)
+      - name: Post Report to Teams
+        if: vars.REPORT_WEBHOOK_URL != ''
+        env:
+          WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}
+        run: |
+          python3 <<'EOF'
+          import os
+          import requests
 
-          webhook_url = os.environ.get("REPORT_WEBHOOK_URL")
-          if not webhook_url:
-              print("❌ REPORT_WEBHOOK_URL is empty. Exiting.")
+          webhook_url = os.environ['WEBHOOK_URL']
+
+          with open("weekly_issues_report.md", "r") as f:
+              report = f.read()
+
+          payload = {
+              "@type": "MessageCard",
+              "@context": "http://schema.org/extensions",
+              "themeColor": "0076D7",
+              "summary": "Weekly GitHub Issues Report",
+              "sections": [{"activityTitle": "📊 Weekly GitHub Issues Report", "text": report.replace('\n', '  \n')}]
+          }
+
+          response = requests.post(webhook_url, json=payload, headers={"Content-Type": "application/json"})
+          if response.status_code != 200:
+              print(f"Failed to post to webhook: {response.status_code} {response.text}")
               exit(1)
-
-          payload = {"text": final_message, "markdown": True}
-          resp = requests.post(webhook_url, json=payload)
-          resp.raise_for_status()
           print("✅ Report sent to Teams successfully!")
           EOF
+
+      - name: Upload Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-issues-report-${{ github.run_id }}
+          path: weekly_issues_report.md
+          retention-days: 7
