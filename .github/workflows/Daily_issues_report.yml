@@ -19,8 +19,8 @@ jobs:
 
       - name: Generate and send report
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}  # Use vars here
+          GITHUB_TOKEN: ${{ secrets.GHPT_PAT }}
+          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}
         run: |
           python << 'EOF'
           import requests
@@ -29,8 +29,7 @@ jobs:
           import pytz
 
           repos = [
-              "swapnilpawar8767/Repo-info-report",
-              "swapnilpawar8767/env-test"
+              "swapnilpawar8767/Repo-info-report"
           ]
 
           headers = {
@@ -63,6 +62,9 @@ jobs:
                   continue
 
               has_recent_issues = False
+              open_count = 0
+              closed_count = 0
+
               for issue in issues:
                   if "pull_request" in issue:
                       continue
@@ -82,13 +84,22 @@ jobs:
 
                   has_recent_issues = True
                   title = issue.get("title", "")
+                  issue_number = issue.get("number", "")
                   issue_url = issue.get("html_url", "")
                   status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
+
+                  if status == "🆕 Open":
+                      open_count += 1
+                  else:
+                      closed_count += 1
+
                   updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
 
                   milestone = issue.get("milestone")
+                  milestone_name = "-"
                   due_date = "-"
                   if isinstance(milestone, dict):
+                      milestone_name = milestone.get("title", "-")
                       due_date = milestone.get("due_on", "-")[:10] if milestone.get("due_on") else "-"
 
                   last_comment = "No comments"
@@ -100,15 +111,27 @@ jobs:
                           if len(last_comment) > 50:
                               last_comment = last_comment[:47] + "..."
 
-                  message_parts.append(f"📌 **[{title}]({issue_url})**  \n"
-                                       f"**Last Comment** :: {last_comment}  \n"
-                                       f"**Due Date**     :: {due_date}  \n"
-                                       f"**Status**       :: {status}  \n"
-                                       f"**Last Updated** :: {updated_at}  \n"
-                                       f"{separator}\n")
+                  message_parts.append(
+                      f"📌 **#{issue_number} [{title}]({issue_url})**  \n"
+                      f"**Last Comment** :: {last_comment}  \n"
+                      f"**Due Date**     :: {due_date}  \n"
+                      f"**Status**       :: {status}  \n"
+                      f"**Milestone**    :: {milestone_name}  \n"
+                      f"**Last Updated** :: {updated_at}  \n"
+                      f"{separator}\n"
+                  )
 
               if not has_recent_issues:
                   message_parts.append(f"No issues updated in the last 7 days\n{separator}\n")
+
+              # Per-repo summary box
+              message_parts.append(
+                  f"{separator}"
+                  f"📊 **Summary (last 7 days)**\n"
+                  f"Open Issues   :: {open_count}\n"
+                  f"Closed Issues :: {closed_count}\n"
+                  f"{separator}\n"
+              )
 
           final_message = "".join(message_parts)
 
