@@ -52,23 +52,23 @@ jobs:
           seven_days_ago_iso = seven_days_ago.isoformat()
 
           message_parts = []
-          message_parts.append(f"📊 Weekly GitHub Repo Report - {report_date}\n")
+          message_parts.append(f"📊 Weekly GitHub Repo Report - {report_date}\n\n")
           message_parts.append(f"Showing issues updated in the last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n\n")
 
           for repo in repos:
-              repo_header = f"{separator}\n{' ' * 15}**{repo.upper()}**\n\n{separator}"
+              repo_header = f"\n{separator}\n\n{' ' * 15}**{repo.upper()}**\n\n{separator}\n"
               message_parts.append(repo_header)
 
               url = f"https://api.github.com/repos/{repo}/issues?state=all&since={seven_days_ago_iso}&per_page=100&sort=updated"
               try:
                   response = requests.get(url, headers=headers)
                   if response.status_code == 401:
-                      message_parts.append(f"⚠️ Unauthorized to fetch issues for {repo}. Check token permissions.\n{separator}")
+                      message_parts.append(f"⚠️ Unauthorized to fetch issues for {repo}. Check token permissions.\n{separator}\n")
                       continue
                   response.raise_for_status()
                   issues = response.json()
               except Exception as e:
-                  message_parts.append(f"Failed to fetch issues for {repo}: {e}\n{separator}")
+                  message_parts.append(f"Failed to fetch issues for {repo}: {e}\n{separator}\n")
                   continue
 
               has_recent_issues = False
@@ -126,25 +126,24 @@ jobs:
                           last_comment = "Failed to fetch comments"
 
                   message_parts.append(
-                      f"📌 **#{issue_number} [{title}]({issue_url})**\n"
-                      f"**Last Comment** :: {last_comment}\n"
-                      f"**Due Date**     :: {due_date}\n"
-                      f"**Status**       :: {status}\n"
-                      f"**Milestone**    :: {milestone_name}\n"
-                      f"**Last Updated** :: {updated_at}\n"
-                      f"{separator}"
+                      f"📌 **#{issue_number} [{title}]({issue_url})**  \n"
+                      f"**Last Comment** :: {last_comment}  \n"
+                      f"**Due Date**     :: {due_date}  \n"
+                      f"**Status**       :: {status}  \n"
+                      f"**Milestone**    :: {milestone_name}  \n"
+                      f"**Last Updated** :: {updated_at}  \n"
+                      f"{separator}\n"
                   )
 
               if not has_recent_issues:
-                  message_parts.append(f"No issues updated in the last 7 days\n{separator}")
+                  message_parts.append(f"No issues updated in the last 7 days\n{separator}\n")
 
-              # Per-repo summary box - formatted cleanly
+              # Per-repo summary box (fixed duplicate separator)
               message_parts.append(
-                  f"{separator}"
                   f"📊 **Summary (last 7 days)**\n"
                   f"Open Issues   :: {open_count}\n"
                   f"Closed Issues :: {closed_count}\n"
-                  f"{separator}"
+                  f"{separator}\n"
               )
 
           final_message = "".join(message_parts)
