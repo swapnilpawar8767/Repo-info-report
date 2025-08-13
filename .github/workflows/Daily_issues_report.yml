@@ -65,11 +65,24 @@ jobs:
                       f"https://api.github.com/repos/{repo}/issues?state=all&per_page={per_page}&page={page}&sort=updated",
                       headers=headers,
                   )
-                  issues = response.json()
+
+                  # Safety check for JSON parsing
+                  try:
+                      issues = response.json()
+                  except ValueError:
+                      print(f"Failed to parse JSON for {repo}: {response.text}")
+                      break
+
+                  if not isinstance(issues, list):
+                      print(f"Unexpected response for {repo}: {issues}")
+                      break
+
                   if not issues:
                       break
 
                   for issue in issues:
+                      if not isinstance(issue, dict):
+                          continue
                       if "pull_request" in issue:
                           continue
 
@@ -98,7 +111,10 @@ jobs:
                       last_comment = "No comments"
                       if issue.get("comments", 0) > 0:
                           comments_response = requests.get(issue["comments_url"], headers=headers)
-                          comments = comments_response.json()
+                          try:
+                              comments = comments_response.json()
+                          except ValueError:
+                              comments = []
                           if comments:
                               last_comment = comments[-1].get("body", "").replace("\n", " ")
                               if len(last_comment) > 50:
