@@ -29,8 +29,8 @@ jobs:
           import pytz
 
           repos = [
-              "Swapnilpawar8767/Repo-info-report",
-              "swapnilpawar8767/Env-test"
+              "swapnilpawar8767/Repo-info-report",
+              "swapnilpawar8767/env-test"
           ]
 
           headers = {
