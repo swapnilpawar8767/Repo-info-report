@@ -23,8 +23,8 @@ jobs:
 
       - name: Generate and send report
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Use your TL's token
-          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}  # Use same webhook variable as TL
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}        # TL's token
+          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}  # TL's webhook
         run: |
           python << 'EOF'
           import requests
@@ -45,7 +45,7 @@ jobs:
           }
 
           IST = pytz.timezone('Asia/Kolkata')
-          today_utc = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
+          today_utc = datetime.datetime.now(datetime.timezone.utc)
           seven_days_ago_utc = today_utc - datetime.timedelta(days=7)
 
           report_date = datetime.date.today()
