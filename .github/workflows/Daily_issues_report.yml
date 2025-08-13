@@ -29,7 +29,7 @@ jobs:
           import pytz
 
           repos = [
-              "ZySec-AI/cyberpod-readiness"
+              "swapnilpawar8767/Repo-info-report"
           ]
 
           headers = {
