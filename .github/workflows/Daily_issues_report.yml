@@ -27,103 +27,115 @@ jobs:
           import os
           import datetime
           import pytz
-          
+
           repos = [
               "swapnilpawar8767/Repo-info-report"
           ]
-          
+
           headers = {
               "Authorization": f"token {os.environ['GITHUB_TOKEN']}",
               "Accept": "application/vnd.github.v3+json"
           }
-          
+
           report_date = datetime.date.today()
           separator = "──────────────────────────────\n"
           IST = pytz.timezone('Asia/Kolkata')
-          
+
           # Calculate date 7 days ago
           seven_days_ago = datetime.datetime.now(IST) - datetime.timedelta(days=7)
-          
+
           message_parts = []
-          message_parts.append(f"📊 **Weekly GitHub Repo Report - {report_date}**\n\n")
+          message_parts.append(f"📊 Weekly GitHub Repo Report - {report_date}\n\n")
           message_parts.append(f"Showing issues updated in the last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n\n")
-          
+
           for repo in repos:
-              # Add repo name heading
-              repo_header = f"\n{separator}\n{' ' * 15}**{repo.upper()}**\n{separator}\n"
+              # Repo header
+              repo_header = f"\n{separator}\n\n{' ' * 15}**{repo.upper()}**\n\n{separator}\n"
               message_parts.append(repo_header)
-          
-              response = requests.get(
-                  f"https://api.github.com/repos/{repo}/issues?state=all&per_page=100&sort=updated",
-                  headers=headers,
-              )
-              response.raise_for_status()
-              issues = response.json()
-          
+
+              page = 1
+              per_page = 100
               has_recent_issues = False
-          
-              for issue in issues:
-                  if isinstance(issue, dict):  # Ensure it's a dictionary
+
+              while True:
+                  response = requests.get(
+                      f"https://api.github.com/repos/{repo}/issues?state=all&per_page={per_page}&page={page}&sort=updated",
+                      headers=headers,
+                  )
+                  if response.status_code != 200:
+                      message_parts.append(f"Failed to fetch issues for {repo}: {response.status_code}\n")
+                      break
+
+                  issues = response.json()
+                  if not issues:
+                      break
+
+                  for issue in issues:
                       if "pull_request" in issue:
                           continue
-          
+
                       updated_at_raw = issue.get("updated_at", "")
                       try:
                           dt_utc = datetime.datetime.strptime(updated_at_raw, "%Y-%m-%dT%H:%M:%SZ")
                           dt_utc = dt_utc.replace(tzinfo=datetime.timezone.utc)
                           dt_ist = dt_utc.astimezone(IST)
-                      except Exception as e:
-                          print(f"Error parsing date for issue: {e}")
+                      except Exception:
                           continue
-          
-                      # Skip issues not updated in the last 7 days
+
+                      # Skip issues not updated in last 7 days
                       if dt_ist < seven_days_ago:
                           continue
-          
+
                       has_recent_issues = True
-                      title = issue.get("title", "No title")
-                      issue_url = issue.get("html_url", "#")
+                      title = issue.get("title", "")
+                      issue_url = issue.get("html_url", "")
                       status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
                       updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
-          
+
+                      # Safe milestone access
                       due_date = "-"
-                      milestone = issue.get("milestone", {})
-                      if isinstance(milestone, dict) and milestone.get("due_on"):
-                          due_date = milestone["due_on"][:10]
-          
+                      milestone = issue.get("milestone")
+                      if milestone and isinstance(milestone, dict):
+                          due_date = milestone.get("due_on", "-")[:10] if milestone.get("due_on") else "-"
+
+                      # Last comment safe access
                       last_comment = "No comments"
                       if issue.get("comments", 0) > 0:
-                          try:
-                              comments_response = requests.get(issue.get("comments_url", ""), headers=headers)
-                              comments_response.raise_for_status()
-                              comments = comments_response.json()
-                              if comments and isinstance(comments, list):
-                                  last_comment = comments[-1].get("body", "No comment body")
-                                  if len(last_comment) > 50:
-                                      last_comment = last_comment[:47] + "..."
-                          except Exception as e:
-                              print(f"Error getting comments: {e}")
-          
-                      message_parts.append(
-                          f"📌 **[{title}]({issue_url})**  \n"
-                          f"**Last Comment** :: {last_comment}  \n"
-                          f"**Due Date**     :: {due_date}  \n"
-                          f"**Status**       :: {status}  \n"
-                          f"**Last Updated** :: {updated_at}  \n"
-                          f"{separator}\n"
-                      )
-          
+                          comments_response = requests.get(issue["comments_url"], headers=headers)
+                          comments = comments_response.json()
+                          if isinstance(comments, list) and comments:
+                              last_comment = comments[-1].get("body", "").replace("\n", " ")
+                              if len(last_comment) > 50:
+                                  last_comment = last_comment[:47] + "..."
+
+                      message_parts.append(f"📌 **[{title}]({issue_url})**  \n"
+                                           f"**Last Comment** :: {last_comment}  \n"
+                                           f"**Due Date**     :: {due_date}  \n"
+                                           f"**Status**       :: {status}  \n"
+                                           f"**Last Updated** :: {updated_at}  \n"
+                                           f"{separator}\n")
+
+                  if len(issues) < per_page:
+                      break
+                  page += 1
+
               if not has_recent_issues:
                   message_parts.append(f"No issues updated in the last 7 days\n{separator}\n")
-          
+
           final_message = "".join(message_parts)
-          
+
+          # Check if webhook URL exists
+          webhook_url = os.environ.get("REPORT_WEBHOOK_URL")
+          if not webhook_url:
+              print("❌ REPORT_WEBHOOK_URL is empty. Exiting.")
+              exit(1)
+
           payload = {
               "text": final_message,
               "markdown": True
           }
-          
-          resp = requests.post(os.environ["REPORT_WEBHOOK_URL"], json=payload)
+
+          resp = requests.post(webhook_url, json=payload)
           resp.raise_for_status()
-          print("✅ Report sent successfully!")
+          print("✅ Report sent to Teams successfully!")
           EOF
