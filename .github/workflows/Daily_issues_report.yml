@@ -20,7 +20,7 @@ jobs:
       - name: Generate and send report
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}
+          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}  # Use vars here
         run: |
           python << 'EOF'
           import requests
@@ -29,7 +29,7 @@ jobs:
           import pytz
 
           repos = [
-              "swapnilpawar8767/Repo-info-report"
+              "swapnilpawar8767/Repo-info-report",
               "swapnilpawar8767/env-test"
           ]
 
@@ -42,7 +42,6 @@ jobs:
           report_date = datetime.date.today()
           separator = "──────────────────────────────\n"
 
-          # 7 days ago
           seven_days_ago = datetime.datetime.now(IST) - datetime.timedelta(days=7)
           seven_days_ago_iso = seven_days_ago.isoformat()
 
