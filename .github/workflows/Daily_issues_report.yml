@@ -33,7 +33,6 @@ jobs:
               "swapnilpawar8767/Repo-info-report"
           ]
 
-          # Choose token: Prefer GHPT_PAT, fallback to GITHUB_TOKEN
           token = os.environ.get("GHPT_PAT") or os.environ.get("GITHUB_TOKEN")
           if not token:
               print("❌ No token found in GHPT_PAT or GITHUB_TOKEN. Exiting.")
@@ -56,7 +55,7 @@ jobs:
           message_parts.append(f"Showing issues updated in the last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n\n")
 
           for repo in repos:
-              repo_header = f"\n{separator}\n\n{' ' * 15}**{repo.upper()}**\n\n{separator}\n"
+              repo_header = f"\n{separator}\n{' ' * 15}**{repo.upper()}**\n{separator}\n"
               message_parts.append(repo_header)
 
               url = f"https://api.github.com/repos/{repo}/issues?state=all&since={seven_days_ago_iso}&per_page=100&sort=updated"
@@ -132,18 +131,19 @@ jobs:
                       f"**Status**       :: {status}  \n"
                       f"**Milestone**    :: {milestone_name}  \n"
                       f"**Last Updated** :: {updated_at}  \n"
-                      f"{separator}\n"
+                      f"{separator}"
                   )
 
               if not has_recent_issues:
-                  message_parts.append(f"No issues updated in the last 7 days\n{separator}\n")
+                  message_parts.append(f"No issues updated in the last 7 days\n{separator}")
 
-              # Per-repo summary box (fixed duplicate separator)
+              # Fixed summary formatting with top & bottom lines
               message_parts.append(
-                  f"📊 **Summary (last 7 days)**\n"
+                  f"{separator}"
+                  f"📊 Summary (last 7 days)\n"
                   f"Open Issues   :: {open_count}\n"
                   f"Closed Issues :: {closed_count}\n"
-                  f"{separator}\n"
+                  f"{separator}"
               )
 
           final_message = "".join(message_parts)
