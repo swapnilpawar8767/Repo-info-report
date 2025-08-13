@@ -1,44 +1,40 @@
-name: Weekly Issues Report for ZySec-AI Repos
+name: Weekly GitHub Repo Report (Last 7 Days)
 
 on:
   schedule:
-    - cron: "30 2 * * 1"  # Every Monday at 08:00 IST (2:30 AM UTC)
+    - cron: "30 2 * * *"  # Daily at 08:00 IST (2:30 AM UTC)
   workflow_dispatch:
 
 permissions:
-  issues: read
   contents: read
+  issues: read
 
 jobs:
-  generate-issues-report:
+  send-report:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
 
-      - name: Set up Python dependencies
+      - name: Install dependencies
         run: pip install requests pytz
 
-      - name: Generate Weekly Issues Report
+      - name: Generate and send report
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Use your TL's token
+          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}  # Use same webhook variable as TL
         run: |
-          python3 <<'EOF'
-          import os
+          python << 'EOF'
           import requests
+          import os
           import datetime
           import pytz
 
-          IST = pytz.timezone('Asia/Kolkata')
-          today = datetime.datetime.now(IST)
-          seven_days_ago = today - datetime.timedelta(days=7)
-          seven_days_ago_iso = seven_days_ago.isoformat()
-
+          # Repos to report on
           repos = [
-              "swapnilpawar8767/Repo-info-report",
-              "swapnilpawar8767/env-test",
-              "swapnilpawar8767/oc-project"
+              "swapnilpawar8767/Repo-info-report"
           ]
 
           headers = {
@@ -46,90 +42,91 @@ jobs:
               "Accept": "application/vnd.github.v3+json"
           }
 
+          IST = pytz.timezone('Asia/Kolkata')
+          today_utc = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
+          seven_days_ago_utc = today_utc - datetime.timedelta(days=7)
+
+          report_date = datetime.date.today()
           separator = "──────────────────────────────\n"
-          report_date = today.strftime("%Y-%m-%d")
-          message_parts = [f"📊 Weekly GitHub Issues Report - {report_date}\n"]
-          message_parts.append(f"Showing issues updated in the last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n")
+
+          message_parts = []
+          message_parts.append(f"📊 GitHub Repo Report - Last 7 Days (Up to {report_date})\n\n")
 
           for repo in repos:
-              repo_header = f"\n{separator}\n**{repo.upper()}**\n{separator}\n"
+              repo_header = f"\n{separator}\n\n{' ' * 15}**{repo.upper()}**\n\n{separator}\n"
               message_parts.append(repo_header)
 
-              url = f"https://api.github.com/repos/{repo}/issues?state=all&since={seven_days_ago_iso}&per_page=100&sort=updated"
-              try:
-                  response = requests.get(url, headers=headers)
-                  response.raise_for_status()
-                  issues = response.json()
-              except requests.exceptions.HTTPError as e:
-                  message_parts.append(f"Failed to fetch issues for {repo}: {e}\n")
-                  continue
-
-              recent_issues_found = False
-              for issue in issues:
-                  if "pull_request" in issue:
-                      continue  # skip PRs
-
-                  updated_at = issue.get("updated_at")
-                  if not updated_at:
-                      continue
-
-                  dt_utc = datetime.datetime.strptime(updated_at, "%Y-%m-%dT%H:%M:%SZ")
-                  dt_utc = dt_utc.replace(tzinfo=datetime.timezone.utc)
-                  dt_ist = dt_utc.astimezone(IST)
-
-                  if dt_ist < seven_days_ago:
-                      continue
-
-                  recent_issues_found = True
-                  title = issue.get("title", "")
-                  url = issue.get("html_url", "")
-                  status = "🆕 Open" if issue.get("state") == "open" else "Closed"
-
-                  message_parts.append(
-                      f"- [#{issue['number']}]({url}) {title} | Status: {status} | Updated: {dt_ist.strftime('%Y-%m-%d %H:%M')}\n"
+              page = 1
+              per_page = 100
+              while True:
+                  response = requests.get(
+                      f"https://api.github.com/repos/{repo}/issues?state=all&per_page={per_page}&page={page}&sort=updated",
+                      headers=headers,
                   )
+                  issues = response.json()
+                  if not issues:
+                      break
 
-              if not recent_issues_found:
-                  message_parts.append("No issues updated in the last 7 days.\n")
+                  for issue in issues:
+                      if "pull_request" in issue:
+                          continue
 
-          final_message = "\n".join(message_parts)
+                      updated_at_raw = issue.get("updated_at", "")
+                      try:
+                          dt_utc = datetime.datetime.strptime(updated_at_raw, "%Y-%m-%dT%H:%M:%SZ")
+                          dt_utc = dt_utc.replace(tzinfo=datetime.timezone.utc)
+                      except Exception:
+                          continue
 
-          with open("weekly_issues_report.md", "w") as f:
-              f.write(final_message)
-          EOF
+                      # Only include issues updated in the last 7 days
+                      if dt_utc < seven_days_ago_utc:
+                          continue
 
-      - name: Post Report to Teams
-        if: vars.REPORT_WEBHOOK_URL != ''
-        env:
-          WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}
-        run: |
-          python3 <<'EOF'
-          import os
-          import requests
+                      title = issue.get("title", "")
+                      issue_url = issue.get("html_url", "")
+                      status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
 
-          webhook_url = os.environ['WEBHOOK_URL']
+                      dt_ist = dt_utc.astimezone(IST)
+                      updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
 
-          with open("weekly_issues_report.md", "r") as f:
-              report = f.read()
+                      due_date = "-"
+                      if issue.get("milestone") and issue["milestone"].get("due_on"):
+                          due_date = issue["milestone"]["due_on"][:10]
+
+                      last_comment = "No comments"
+                      if issue.get("comments", 0) > 0:
+                          comments_response = requests.get(issue["comments_url"], headers=headers)
+                          comments = comments_response.json()
+                          if comments:
+                              last_comment = comments[-1].get("body", "").replace("\n", " ")
+                              if len(last_comment) > 50:
+                                  last_comment = last_comment[:47] + "..."
+
+                      message_parts.append(f"📌 **[{title}]({issue_url})**  \n"
+                                           f"**Last Comment** :: {last_comment}  \n"
+                                           f"**Due Date**     :: {due_date}  \n"
+                                           f"**Status**       :: {status}  \n"
+                                           f"**Last Updated** :: {updated_at}  \n"
+                                           f"{separator}\n")
+
+                  if len(issues) < per_page:
+                      break
+                  page += 1
+
+          final_message = "".join(message_parts)
 
           payload = {
-              "@type": "MessageCard",
-              "@context": "http://schema.org/extensions",
-              "themeColor": "0076D7",
-              "summary": "Weekly GitHub Issues Report",
-              "sections": [{"activityTitle": "📊 Weekly GitHub Issues Report", "text": report.replace('\n', '  \n')}]
+              "text": final_message,
+              "markdown": True
           }
 
-          response = requests.post(webhook_url, json=payload, headers={"Content-Type": "application/json"})
-          if response.status_code != 200:
-              print(f"Failed to post to webhook: {response.status_code} {response.text}")
-              exit(1)
-          print("✅ Report sent to Teams successfully!")
+          webhook_url = os.environ.get("REPORT_WEBHOOK_URL", "")
+          if not webhook_url:
+              print("Webhook URL not set, skipping send.")
+          else:
+              resp = requests.post(webhook_url, json=payload)
+              if resp.status_code != 200:
+                  print(f"Failed to post report: {resp.status_code} {resp.text}")
+                  exit(1)
+              print("✅ Report sent to Teams successfully!")
           EOF
-
-      - name: Upload Report Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: weekly-issues-report-${{ github.run_id }}
-          path: weekly_issues_report.md
-          retention-days: 7
