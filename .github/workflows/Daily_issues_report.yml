@@ -20,7 +20,7 @@ jobs:
       - name: Generate and send report
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPORT_WEBHOOK_URL: ${{ secrets.REPORT_WEBHOOK_URL }}
+          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}
         run: |
           python << 'EOF'
           import requests
@@ -28,8 +28,15 @@ jobs:
           import datetime
           import pytz
 
+          # Get the webhook from variable
+          webhook_url = os.environ.get("REPORT_WEBHOOK_URL")
+          if not webhook_url:
+              print("❌ REPORT_WEBHOOK_URL variable is empty. Exiting.")
+              exit(1)
+
           repos = [
-              "swapnilpawar8767/Repo-info-report"
+              "wapnilpawar8767/Repo-info-report"
+              
           ]
 
           headers = {
@@ -123,12 +130,6 @@ jobs:
                   message_parts.append(f"No issues updated in the last 7 days\n{separator}\n")
 
           final_message = "".join(message_parts)
-
-          # Check if webhook URL exists
-          webhook_url = os.environ.get("REPORT_WEBHOOK_URL")
-          if not webhook_url:
-              print("❌ REPORT_WEBHOOK_URL is empty. Exiting.")
-              exit(1)
 
           payload = {
               "text": final_message,
