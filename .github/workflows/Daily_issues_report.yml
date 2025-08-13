@@ -1,120 +1,200 @@
-name: Daily GitHub Repo Report
+name: Daily Issues Report for Cyberpod Repos
 
 on:
   schedule:
-    - cron: "30 2 * * 1"  # Every Monday at 08:00 IST (2:30 AM UTC)
-  workflow_dispatch:
+    - cron: '0 2 * * *'  # Runs daily at 2:00 AM UTC
+  workflow_dispatch:  # Allow manual triggering
+
+permissions:
+  issues: read
+  contents: read
 
 jobs:
-  send-report:
+  generate-issues-report:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-      - name: Install dependencies
-        run: pip install requests pytz
+      - name: Set up Python dependencies
+        run: pip install requests
 
-      - name: Generate and send report
+      - name: Generate Issues Report
+        id: generate_report
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPORT_WEBHOOK_URL: ${{ secrets.REPORT_WEBHOOK_URL }}
         run: |
-          python << 'EOF'
-          import requests
+          python3 <<'EOF'
           import os
-          import datetime
-          import pytz
+          import requests
+          from datetime import datetime, timedelta
 
-          repos = [
-              "swapnilpawar8767/Repo-info-report"
-              
+          token = os.environ['GITHUB_TOKEN']
+          headers = {
+              'Authorization': f'token {token}',
+              'Accept': 'application/vnd.github.v3+json'
+          }
+
+          today = datetime.utcnow()
+          yesterday_start = (today - timedelta(days=1)).replace(hour=0, minute=0, second=0)
+          yesterday_end = yesterday_start + timedelta(days=1)
+          date_str = yesterday_start.strftime('%Y-%m-%d')
+
+          repositories = [
+              'swapnilpawar8767/Repo-info-report'
+
           ]
 
-          headers = {
-              "Authorization": f"token {os.environ['GITHUB_TOKEN']}",
-              "Accept": "application/vnd.github.v3+json"
-          }
+          def fetch_issues(repo, state, start_date, end_date):
+              all_issues = []
+              page = 1
+              per_page = 100
 
-          report_date = datetime.date.today()
-          separator = "──────────────────────────────\n"
-          IST = pytz.timezone('Asia/Kolkata')
-          
-          # Calculate date 7 days ago
-          seven_days_ago = datetime.datetime.now(IST) - datetime.timedelta(days=7)
+              while True:
+                  # For closed issues, use updated_at to get recently closed issues
+                  # For open issues, use created_at to get newly created issues
+                  if state == 'closed':
+                      url = (
+                          f"https://api.github.com/repos/{repo}/issues"
+                          f"?state={state}&per_page={per_page}&page={page}&"
+                          f"sort=updated&direction=asc"
+                      )
+                  else:
+                      url = (
+                          f"https://api.github.com/repos/{repo}/issues"
+                          f"?state={state}&per_page={per_page}&page={page}&"
+                          f"sort=created&direction=asc"
+                      )
 
-          message_parts = []
-          message_parts.append(f"📊 Weekly GitHub Repo Report - {report_date}\n\n")
-          message_parts.append(f"Showing issues updated in the last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n\n")
+                  response = requests.get(url, headers=headers)
+                  if response.status_code != 200:
+                      print(f"Error fetching {state} issues from {repo}: {response.status_code}")
+                      print(response.text)
+                      break
 
-          for repo in repos:
-              # Add repo name heading centered with bold, surrounded by separators
-              repo_header = f"\n{separator}\n\n{' ' * 15}**{repo.upper()}**\n\n{separator}\n"
-              message_parts.append(repo_header)
+                  issues = response.json()
+                  if not issues:
+                      break
 
-              response = requests.get(
-                  f"https://api.github.com/repos/{repo}/issues?state=all&per_page=100&sort=updated",
-                  headers=headers,
-              )
-              issues = response.json()
+                  filtered = []
+                  for issue in issues:
+                      # For closed issues, check closed_at date
+                      # For open issues, check created_at date
+                      if state == 'closed':
+                          event_date = issue.get('closed_at')
+                      else:
+                          event_date = issue.get('created_at')
+                      
+                      if not event_date:
+                          continue
+                      
+                      event_dt = datetime.strptime(event_date, '%Y-%m-%dT%H:%M:%SZ')
+                      
+                      # Only include issues that were created/closed within the specified date range
+                      if start_date <= event_dt < end_date:
+                          filtered.append(issue)
+                      # Stop processing if we've gone past our date range (since we're sorting by date asc)
+                      elif event_dt >= end_date:
+                          break
 
-              has_recent_issues = False
+                  all_issues.extend(filtered)
 
-              for idx, issue in enumerate(issues):
-                  if "pull_request" in issue:
-                      continue
+                  # If we found issues outside our date range, stop paginating
+                  if any(datetime.strptime(issue.get('closed_at' if state == 'closed' else 'created_at', ''), '%Y-%m-%dT%H:%M:%SZ') >= end_date for issue in issues if issue.get('closed_at' if state == 'closed' else 'created_at')):
+                      break
 
-                  updated_at_raw = issue.get("updated_at", "")
-                  try:
-                      dt_utc = datetime.datetime.strptime(updated_at_raw, "%Y-%m-%dT%H:%M:%SZ")
-                      dt_utc = dt_utc.replace(tzinfo=datetime.timezone.utc)
-                      dt_ist = dt_utc.astimezone(IST)
-                  except Exception:
-                      continue
+                  if len(issues) < per_page:
+                      break
+                  page += 1
 
-                  # Skip issues not updated in the last 7 days
-                  if dt_ist < seven_days_ago:
-                      continue
+              return all_issues
 
-                  has_recent_issues = True
-                  title = issue.get("title", "")
-                  issue_url = issue.get("html_url", "")
-                  status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
-                  updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
+          report = f"# Daily Issues Report - {date_str}\n"
+          report += f"**Date Range**: {yesterday_start.isoformat()} to {yesterday_end.isoformat()}\n\n"
 
-                  due_date = "-"
-                  if issue.get("milestone") and issue["milestone"].get("due_on"):
-                      due_date = issue["milestone"]["due_on"][:10]
+          for repo in repositories:
+              repo_name = repo.split('/')[-1]
+              report += f"\n## {repo_name} Repository\n"
 
-                  last_comment = "No comments"
-                  if issue.get("comments", 0) > 0:
-                      comments_response = requests.get(issue["comments_url"], headers=headers)
-                      comments = comments_response.json()
-                      if comments:
-                          last_comment = comments[-1].get("body", "").replace("\n", " ")
-                          if len(last_comment) > 50:
-                              last_comment = last_comment[:47] + "..."
+              opened = fetch_issues(repo, 'open', yesterday_start, yesterday_end)
+              report += f"\n### Newly Opened Issues ({len(opened)} found)\n"
+              if opened:
+                  for issue in opened:
+                      assignee = issue.get('assignee', {}).get('login', 'Unassigned')
+                      labels = ', '.join([label['name'] for label in issue.get('labels', [])])
+                      report += (
+                          f"- [#{issue['number']}]({issue['html_url']}) {issue['title']}\n"
+                          f"  - **Assignee**: {assignee}\n"
+                          f"  - **Labels**: {labels}\n"
+                      )
+              else:
+                  report += "No new issues opened.\n"
 
-                  message_parts.append(f"📌 **[{title}]({issue_url})**  \n"
-                                     f"**Last Comment** :: {last_comment}  \n"
-                                     f"**Due Date**     :: {due_date}  \n"
-                                     f"**Status**       :: {status}  \n"
-                                     f"**Last Updated** :: {updated_at}  \n"
-                                     f"{separator}\n")
+              closed = fetch_issues(repo, 'closed', yesterday_start, yesterday_end)
+              report += f"\n### Recently Closed Issues ({len(closed)} found)\n"
+              if closed:
+                  for issue in closed:
+                      assignee = issue.get('assignee', {}).get('login', 'Unassigned')
+                      report += (
+                          f"- [#{issue['number']}]({issue['html_url']}) {issue['title']}\n"
+                          f"  - **Assignee**: {assignee}\n"
+                          f"  - **Closed At**: {issue['closed_at']}\n"
+                      )
+              else:
+                  report += "No issues were closed.\n"
 
-              if not has_recent_issues:
-                  message_parts.append(f"No issues updated in the last 7 days\n{separator}\n")
-
-          final_message = "".join(message_parts)
-
-          payload = {
-              "text": final_message,
-              "markdown": True
-          }
-
-          resp = requests.post(os.environ["REPORT_WEBHOOK_URL"], json=payload)
-          resp.raise_for_status()
-          print("✅ Report sent to Teams successfully!")
+          with open('issues_report.md', 'w') as f:
+              f.write(report)
           EOF
+
+      - name: Post to Webhook
+        if: vars.REPORT_WEBHOOK_URL != ''
+        env:
+          WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}
+        run: |
+          # Debugging: Check if issues_report.md exists and its contents
+          if [ -f issues_report.md ]; then
+              echo "Contents of issues_report.md:"
+              cat issues_report.md
+          else
+              echo "issues_report.md does not exist."
+              exit 1
+          fi
+
+          python3 <<'EOF'
+          import os
+          import requests
+
+          with open('issues_report.md', 'r') as f:
+              report = f.read()
+
+          webhook_url = os.environ['WEBHOOK_URL']
+
+          if 'webhook.office.com' in webhook_url:
+              payload = {
+                  "@type": "MessageCard",
+                  "@context": "http://schema.org/extensions",
+                  "themeColor": "0076D7",
+                  "summary": "Daily Issues Report",
+                  "sections": [{
+                      "activityTitle": "📊 Daily Issues Report",
+                      "text": report.replace('\n', '  \n')
+                  }]
+              }
+          else:
+              payload = {"text": report}
+
+          response = requests.post(webhook_url, json=payload, headers={"Content-Type": "application/json"})
+          if response.status_code != 200:
+              print(f"Failed to post to webhook: {response.status_code} {response.text}")
+              exit(1)
+          print("Successfully posted report to webhook.")
+          EOF
+
+      - name: Upload Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: issues-report-${{ github.run_id }}
+          path: issues_report.md
+          retention-days: 7
