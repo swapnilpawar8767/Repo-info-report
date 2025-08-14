@@ -19,7 +19,7 @@ jobs:
 
       - name: Generate and send report
         env:
-          GHPT_PAT: ${{ secrets.DILESH_PAT_TOKEN }}
+          GHPT_PAT: ${{ secrets.GHPT_PAT }}
           WEEKLY_ISSUE_REPORT: ${{ vars.WEEKLY_ISSUE_REPORT }}
         run: |
           python << 'EOF'
@@ -28,7 +28,7 @@ jobs:
           from github import Github
 
           repos = [
-              "swapnilpawar8767/Repo-info-report"
+              "swapnilpawar8767/Repo-info-report/"
           ]
 
           token = os.environ.get("GHPT_PAT")
@@ -158,8 +158,8 @@ jobs:
           webhook_url = os.environ.get("WEEKLY_ISSUE_REPORT")
           payload = {
               "text": f"📊 Weekly GitHub Repo Report - {report_date}\n\n"
-                      f"📅 Period: Last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n"
-                      f"📊 Repositories: {len(repos)} repositories monitored\n"
+                      f"📅 Period: Last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})  \n"
+                      f"📊 Repositories: {len(repos)} repositories monitored  \n"
                       f"📥 [Download PDF Report]({download_url})"
           }
           requests.post(webhook_url, json=payload, headers={"Content-Type": "application/json"})
