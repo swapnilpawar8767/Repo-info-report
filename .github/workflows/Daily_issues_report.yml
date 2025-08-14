@@ -19,7 +19,7 @@ jobs:
 
       - name: Generate and send report
         env:
-          GHPT_PAT: ${{ secrets.DILESH_PAT_TOKEN }}
+          GHPT_PAT: ${{ secrets.DILESH_PAT_TOKEN  }}
           WEEKLY_ISSUE_REPORT: ${{ vars.WEEKLY_ISSUE_REPORT }}
         run: |
           python << 'EOF'
@@ -27,6 +27,7 @@ jobs:
           from weasyprint import HTML
           from github import Github
 
+          # === SETTINGS ===
           repos = [
               "swapnilpawar8767/Repo-info-report"
           ]
@@ -98,15 +99,41 @@ jobs:
 
                   updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
 
+                  # Milestone & Due Date
+                  milestone = issue.get("milestone")
+                  milestone_name = "-"
+                  due_date = "-"
+                  if isinstance(milestone, dict):
+                      milestone_name = milestone.get("title", "-")
+                      due_date = milestone.get("due_on", "-")[:10] if milestone.get("due_on") else "-"
+
+                  # Last Comment
+                  last_comment = "No comments"
+                  if issue.get("comments", 0) > 0:
+                      try:
+                          comments_response = requests.get(issue["comments_url"], headers=headers)
+                          comments_response.raise_for_status()
+                          comments = comments_response.json()
+                          if comments:
+                              last_comment = comments[-1].get("body", "").replace("\n", " ")
+                              if len(last_comment) > 50:
+                                  last_comment = last_comment[:47] + "..."
+                      except:
+                          last_comment = "Failed to fetch comments"
+
+                  # Add to message
                   message_parts.append(
                       f"📌 **#{issue_number}** [{title}]({issue_url})  \n"
                       f"**Status**: {status} | **Updated**: {updated_at}  \n"
+                      f"**Milestone**: {milestone_name} | **Due**: {due_date}  \n"
+                      f"**Last Comment**: {last_comment}  \n"
                       f"{separator}  \n"
                   )
 
               if not has_recent_issues:
                   message_parts.append(f"No issues updated in the last 7 days\n{separator}\n")
 
+              # Repo summary
               message_parts.append(
                   f"📊 **Summary (last 7 days)**  \n"
                   f"Open Issues   :: {open_count}  \n"
@@ -118,17 +145,17 @@ jobs:
           with open('weekly_report.md', 'w', encoding='utf-8') as f:
               f.write(final_message)
 
-          html_content = markdown.markdown(final_message)
+          # PDF generation
+          html_content = markdown.markdown(final_message, extensions=['tables', 'fenced_code'])
           styled_html = f"<html><body>{html_content}</body></html>"
-
           HTML(string=styled_html).write_pdf('weekly_report.pdf')
 
-          # Always upload to GitHub Release
+          # === Always upload PDF to GitHub Release ===
           g = Github(token)
-          repo_obj = g.get_repo(repos[0])  # first repo in list
+          repo_obj = g.get_repo(repos[0])  # Use first repo for release storage
           release_tag = f"weekly-report-{report_date}"
           release_name = f"Weekly Report - {report_date}"
-          release_body = f"Weekly GitHub Repo Report for {report_date}"
+          release_body = f"Weekly GitHub Repo Report for {report_date}\n\nPeriod: Last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\nRepositories: {len(repos)} repositories monitored"
 
           try:
               existing_release = repo_obj.get_release(release_tag)
@@ -154,15 +181,16 @@ jobs:
 
           download_url = f"https://github.com/{repos[0]}/releases/download/{release_tag}/weekly_report.pdf"
 
-          # Send Teams message
+          # Send Teams notification with clickable link
           webhook_url = os.environ.get("WEEKLY_ISSUE_REPORT")
-          payload = {
-              "text": f"📊 Weekly GitHub Repo Report - {report_date}\n\n"
-                      f"📅 Period: Last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})  \n"
-                      f"📊 Repositories: {len(repos)} repositories monitored  \n"
-                      f"📥 [Download PDF Report]({download_url})"
-          }
-          requests.post(webhook_url, json=payload, headers={"Content-Type": "application/json"})
+          if webhook_url:
+              payload = {
+                  "text": f"📊 Weekly GitHub Repo Report - {report_date}\n\n"
+                          f"📅 Period: Last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})  \n"
+                          f"📊 Repositories: {len(repos)} repositories monitored  \n"
+                          f"📥 [Download PDF Report]({download_url})"
+              }
+              requests.post(webhook_url, json=payload, headers={"Content-Type": "application/json"})
           EOF
 
       - name: Upload Report Artifacts
