@@ -158,8 +158,8 @@ jobs:
           webhook_url = os.environ.get("WEEKLY_ISSUE_REPORT")
           payload = {
               "text": f"📊 Weekly GitHub Repo Report - {report_date}\n\n"
-                      f"📅 Period: Last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n"
-                      f"📊 Repositories: {len(repos)} repositories monitored\n"
+                      f"📅 Period: Last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})  \n"
+                      f"📊 Repositories: {len(repos)} repositories monitored  \n"
                       f"📥 [Download PDF Report]({download_url})"
           }
           requests.post(webhook_url, json=payload, headers={"Content-Type": "application/json"})
