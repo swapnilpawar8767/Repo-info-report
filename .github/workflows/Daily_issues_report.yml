@@ -29,10 +29,7 @@ jobs:
 
           # === SETTINGS ===
           repos = [
-              "ZySec-AI/cyberpod-readiness",
-              "ZySec-AI/cpod-backend",
-              "ZySec-AI/cyberpod",
-              "ZySec-AI/cpod-ui"
+              "swapnilpawar8767/Repo-info-report"
           ]
 
           token = os.environ.get("GHPT_PAT")
