@@ -15,28 +15,32 @@ jobs:
           python-version: "3.x"
 
       - name: Install dependencies
-        run: pip install requests pytz
+        run: pip install requests pytz weasyprint markdown PyGithub
 
       - name: Generate and send report
         env:
-          DILESH_PAT_TOKEN: ${{ secrets.DILESH_PAT_TOKEN }}
-          REPORT_WEBHOOK_URL: ${{ vars.REPORT_WEBHOOK_URL }}
+          GHPT_PAT: ${{ secrets.GHPT_PAT }}
+          WEEKLY_ISSUE_REPORT: ${{ vars.WEEKLY_ISSUE_REPORT }}
         run: |
           python << 'EOF'
           import requests
           import os
           import datetime
           import pytz
+          import json
+          import time
+          import markdown
+          from weasyprint import HTML, CSS
+          from github import Github
 
           repos = [
-              "swapnilpawar8767/Repo-info-report",
-              "swapnilpawar8767/env-test"
+              "swapnilpawar8767/Repo-info-report"
           ]
 
-          # Use only one token from secrets.DILESH_PAT_TOKEN
-          token = os.environ.get("DILESH_PAT_TOKEN")
+          # Use only one token from secrets.GHPT_PAT
+          token = os.environ.get("GHPT_PAT")
           if not token:
-              print("❌ No token found in DILESH_PAT_TOKEN. Exiting.")
+              print("❌ No token found in GHPT_PAT. Exiting.")
               exit(1)
 
           headers = {
@@ -126,12 +130,10 @@ jobs:
                           last_comment = "Failed to fetch comments"
 
                   message_parts.append(
-                      f"📌 **#{issue_number} [{title}]({issue_url})**  \n"
-                      f"**Last Comment** :: {last_comment}  \n"
-                      f"**Due Date**     :: {due_date}  \n"
-                      f"**Status**       :: {status}  \n"
-                      f"**Milestone**    :: {milestone_name}  \n"
-                      f"**Last Updated** :: {updated_at}  \n"
+                      f"📌 **#{issue_number}** [{title}]({issue_url})  \n"
+                      f"**Status**: {status} | **Updated**: {updated_at}  \n"
+                      f"**Milestone**: {milestone_name} | **Due**: {due_date}  \n"
+                      f"**Last Comment**: {last_comment}  \n"
                       f"{separator}  \n"
                   )
 
@@ -148,16 +150,214 @@ jobs:
 
           final_message = "".join(message_parts)
 
-          webhook_url = os.environ.get("REPORT_WEBHOOK_URL")
+          # Save report to file for debugging
+          with open('weekly_report.md', 'w', encoding='utf-8') as f:
+              f.write(final_message)
+
+          print("📋 Generated report:")
+          print(f"📏 Message length: {len(final_message)} characters")
+
+          # Generate PDF from markdown
+          print("🔄 Converting to PDF...")
+          
+          # Convert markdown to HTML
+          html_content = markdown.markdown(final_message, extensions=['tables', 'fenced_code'])
+          
+          # Create styled HTML
+          styled_html = f"""
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <meta charset="utf-8">
+              <style>
+                  body {{
+                      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                      margin: 40px;
+                      line-height: 1.6;
+                      color: #333;
+                  }}
+                  h1 {{
+                      color: #0078d4;
+                      border-bottom: 2px solid #0078d4;
+                      padding-bottom: 10px;
+                  }}
+                  h2 {{
+                      color: #106ebe;
+                      margin-top: 30px;
+                  }}
+                  .separator {{
+                      border-top: 1px solid #ddd;
+                      margin: 20px 0;
+                  }}
+                  .issue {{
+                      background: #f8f9fa;
+                      padding: 15px;
+                      margin: 10px 0;
+                      border-left: 4px solid #0078d4;
+                      border-radius: 4px;
+                  }}
+                  .status-open {{
+                      color: #107c10;
+                      font-weight: bold;
+                  }}
+                  .status-closed {{
+                      color: #d13438;
+                      font-weight: bold;
+                  }}
+                  .summary-box {{
+                      background: #e3f2fd;
+                      padding: 15px;
+                      border-radius: 8px;
+                      margin: 20px 0;
+                  }}
+                  a {{
+                      color: #0078d4;
+                      text-decoration: none;
+                  }}
+                  a:hover {{
+                      text-decoration: underline;
+                  }}
+              </style>
+          </head>
+          <body>
+              {html_content}
+          </body>
+          </html>
+          """
+          
+          # Generate PDF
+          try:
+              html = HTML(string=styled_html)
+              html.write_pdf('weekly_report.pdf')
+              print("✅ PDF generated successfully!")
+              
+              # Verify PDF file exists and has content
+              import os
+              if os.path.exists('weekly_report.pdf'):
+                  file_size = os.path.getsize('weekly_report.pdf')
+                  print(f"✅ PDF file verified: {file_size} bytes")
+                  if file_size == 0:
+                      raise Exception("PDF file is empty")
+              else:
+                  raise Exception("PDF file was not created")
+                  
+          except Exception as e:
+              print(f"❌ Failed to generate PDF: {e}")
+              # Fallback: send as markdown file
+              print("📄 Falling back to markdown file...")
+              download_url = "PDF generation failed - check workflow logs"
+
+          webhook_url = os.environ.get("WEEKLY_ISSUE_REPORT")
           if not webhook_url:
-              print("❌ REPORT_WEBHOOK_URL is empty. Exiting.")
+              print("❌ WEEKLY_ISSUE_REPORT is empty. Exiting.")
               exit(1)
 
-          payload = {"text": final_message, "markdown": True}
+          print(f"🔗 Webhook URL: {webhook_url[:50]}...")
+
+          # Create GitHub release with PDF for direct download
+          print("📤 Creating GitHub release with PDF...")
           try:
-              resp = requests.post(webhook_url, json=payload)
-              resp.raise_for_status()
-              print("✅ Report sent to Teams successfully!")
+              g = Github(token)
+              repo = g.get_repo("ZySec-AI/cyberpod-readiness")
+              
+              # Create release tag
+              release_tag = f"weekly-report-{report_date}"
+              release_name = f"Weekly Report - {report_date}"
+              release_body = f"Weekly GitHub Repo Report for {report_date}\n\nPeriod: Last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\nRepositories: {len(repos)} repositories monitored"
+              
+              # Check if release already exists
+              try:
+                  existing_release = repo.get_release(release_tag)
+                  print(f"⚠️ Release {release_tag} already exists, updating...")
+                  # Delete existing release
+                  existing_release.delete_release()
+                  # Delete the tag
+                  repo.get_git_ref(f"tags/{release_tag}").delete()
+              except:
+                  print(f"✅ Creating new release: {release_tag}")
+              
+              # Create release
+              release = repo.create_git_release(
+                  tag=release_tag,
+                  name=release_name,
+                  message=release_body,
+                  draft=False,
+                  prerelease=False
+              )
+              
+              # Upload PDF to release
+              with open('weekly_report.pdf', 'rb') as pdf_file:
+                  asset = release.upload_asset(
+                      path='weekly_report.pdf',
+                      asset=pdf_file,
+                      label='Weekly Report PDF',
+                      content_type='application/pdf'
+                  )
+              
+              # Get download URL
+              download_url = f"https://github.com/ZySec-AI/cyberpod-readiness/releases/download/{release_tag}/weekly_report.pdf"
+              print(f"✅ PDF uploaded to GitHub release: {download_url}")
+              print(f"✅ Asset ID: {asset.id}")
+              
+              # Test the download URL
+              print("🧪 Testing download URL accessibility...")
+              try:
+                  test_response = requests.head(download_url, timeout=10)
+                  if test_response.status_code == 200:
+                      print("✅ Download URL is accessible!")
+                  else:
+                      print(f"⚠️ Download URL returned status: {test_response.status_code}")
+              except Exception as e:
+                  print(f"⚠️ Could not test download URL: {e}")
+              
           except Exception as e:
-              print(f"❌ Failed to send report to Teams: {e}")
+              print(f"❌ Failed to create GitHub release: {e}")
+              download_url = "PDF available in workflow artifacts"
+              print("📄 Falling back to workflow artifacts...")
+
+          # Send Teams message with download link
+          if 'webhook.office.com' in webhook_url:
+              payload = {
+                  "@type": "MessageCard",
+                  "@context": "http://schema.org/extensions",
+                  "themeColor": "0076D7",
+                  "summary": f"Weekly GitHub Repo Report - {report_date}",
+                  "sections": [{
+                      "activityTitle": "📊 Weekly GitHub Repo Report",
+                      "activitySubtitle": f"Generated on {report_date}",
+                      "text": f"📋 **Weekly GitHub Repo Report** has been generated!\n\n"
+                              f"📅 **Period**: Last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n"
+                              f"📊 **Repositories**: {len(repos)} repositories monitored\n"
+                              f"📏 **Report Size**: {len(final_message)} characters\n\n"
+                              f"📥 **Download PDF**: {download_url}\n\n"
+                              f"🔍 **Summary**: Click the link above to download the complete report."
+                  }]
+              }
+          else:
+              payload = {
+                  "text": f"📊 Weekly GitHub Repo Report - {report_date}\n\n"
+                          f"📅 Period: Last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n"
+                          f"📊 Repositories: {len(repos)} repositories monitored\n"
+                          f"📏 Report Size: {len(final_message)} characters\n\n"
+                          f"📥 Download PDF: {download_url}"
+              }
+
+          print("📤 Sending Teams notification...")
+          resp = requests.post(webhook_url, json=payload, headers={"Content-Type": "application/json"})
+          print(f"📡 Response status: {resp.status_code}")
+          
+          if resp.status_code == 200:
+              print("✅ Teams notification sent successfully!")
+          else:
+              print(f"❌ Failed to send Teams notification: {resp.status_code} - {resp.text}")
+              exit(1)
           EOF
+
+      - name: Upload Report Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-report-${{ github.run_id }}
+          path: |
+            weekly_report.md
+            weekly_report.pdf
+          retention-days: 7
