@@ -29,11 +29,9 @@ jobs:
 
           # === CONFIG ===
           repositories = [
-              'ZySec-AI/cyberpod',
-              'ZySec-AI/cpod-backend',
-              'ZySec-AI/CPTesting'
+              'swapnilpawar8767/Repo-info-report'
           ]
-          token = os.environ.get("GHPT_PAT")
+          token = os.environ.get("DILESH_PAT_TOKEN")
           webhook_url = os.environ.get("WEEKLY_ISSUE_REPORT")
           if not token:
               print("❌ Missing GHPT_PAT token.")
