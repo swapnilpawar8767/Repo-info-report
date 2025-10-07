@@ -19,7 +19,7 @@ jobs:
 
       - name: Generate and send report
         env:
-          GHPT_PAT: ${{ secrets.DILESH_PAT_TOKEN }}
+          DILESH_PAT_TOKEN: ${{ secrets.DILESH_PAT_TOKEN }}
           WEEKLY_ISSUE_REPORT: ${{ vars.WEEKLY_ISSUE_REPORT }}
         run: |
           python << 'EOF'
