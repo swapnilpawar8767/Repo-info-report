@@ -29,7 +29,8 @@ jobs:
 
           # === CONFIG ===
           repositories = [
-              'swapnilpawar8767/Repo-info-report'
+              'swapnilpawar8767/Repo-info-report',
+              'swapnilpawar8767/test'
           ]
           token = os.environ.get("DILESH_PAT_TOKEN")
           webhook_url = os.environ.get("WEEKLY_ISSUE_REPORT")
