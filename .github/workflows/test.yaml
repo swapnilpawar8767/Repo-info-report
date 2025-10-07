@@ -1,0 +1,116 @@
+name: Daily GitHub Issues Excel Report
+
+on:
+  schedule:
+    - cron: "30 0 * * *"  # Every day at 06:00 IST (00:30 UTC)
+  workflow_dispatch:
+
+jobs:
+  daily-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: pip install requests openpyxl pytz PyGithub
+
+      - name: Generate and send report
+        env:
+          GHPT_PAT: ${{ secrets.GHPT_PAT }}
+          WEEKLY_ISSUE_REPORT: ${{ vars.WEEKLY_ISSUE_REPORT }}
+        run: |
+          python << 'EOF'
+          import os, requests, datetime, pytz
+          from openpyxl import Workbook
+          from github import Github
+
+          # === CONFIG ===
+          repositories = [
+              'ZySec-AI/cyberpod',
+              'ZySec-AI/cpod-backend',
+              'ZySec-AI/CPTesting'
+          ]
+          token = os.environ.get("GHPT_PAT")
+          webhook_url = os.environ.get("WEEKLY_ISSUE_REPORT")
+          if not token:
+              print("❌ Missing GHPT_PAT token.")
+              exit(1)
+          if not webhook_url:
+              print("❌ Missing Teams webhook URL.")
+              exit(1)
+
+          g = Github(token)
+          IST = pytz.timezone("Asia/Kolkata")
+          today = datetime.datetime.now(IST).date()
+          today_str = today.strftime("%Y-%m-%d")
+
+          # === CREATE EXCEL ===
+          wb = Workbook()
+          ws = wb.active
+          ws.title = "Open Issues"
+          ws.append(["Sr.No", "Repo Name", "Issue ID", "Issue Title", "Assigned To", "Created On", "Open Still (Today)"])
+
+          total_open = 0
+          sr = 1
+          for repo_name in repositories:
+              repo = g.get_repo(repo_name)
+              for issue in repo.get_issues(state="open"):
+                  issue_id = f"#{issue.number}"
+                  title = issue.title
+                  assignee = issue.assignee.login if issue.assignee else "Unassigned"
+                  created_on = issue.created_at.astimezone(IST).strftime("%Y-%m-%d")
+                  ws.append([sr, repo_name, issue_id, title, assignee, created_on, today_str])
+                  sr += 1
+                  total_open += 1
+
+          file_name = f"daily_issues_report_{today_str}.xlsx"
+          wb.save(file_name)
+
+          # === CREATE GITHUB RELEASE ===
+          repo_name = os.environ.get("GITHUB_REPOSITORY")
+          repo = g.get_repo(repo_name)
+          release_tag = f"daily-issues-report-{today_str}"
+          release_name = f"Daily Issues Report - {today_str}"
+          release_body = f"Daily GitHub open issues report ({len(repositories)} repos) - {today_str}"
+
+          try:
+              # Delete existing release if same tag exists
+              old_release = repo.get_release(release_tag)
+              old_release.delete_release()
+              repo.get_git_ref(f"tags/{release_tag}").delete()
+          except Exception:
+              pass
+
+          release = repo.create_git_release(
+              tag=release_tag,
+              name=release_name,
+              message=release_body,
+              draft=False,
+              prerelease=False
+          )
+
+          asset = release.upload_asset(
+              path=file_name,
+              name="daily_issues_report.xlsx",
+              label="Daily Issues Excel Report",
+              content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          )
+          download_url = asset.browser_download_url
+
+          # === SEND TEAMS MESSAGE ===
+          msg = (
+              f"📊 **Daily GitHub Open Issues Report - {today_str}**\n\n"
+              f"📁 Repositories Checked: {len(repositories)}\n"
+              f"📈 **Total Open Issues:** {total_open}\n\n"
+              f"📥 [Download Excel Report]({download_url})"
+          )
+
+          response = requests.post(webhook_url, json={"text": msg}, headers={"Content-Type": "application/json"})
+          if response.status_code == 200:
+              print("✅ Teams message sent successfully.")
+          else:
+              print(f"❌ Failed to send message: {response.status_code}, {response.text}")
+          EOF
