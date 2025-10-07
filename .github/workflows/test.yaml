@@ -29,9 +29,10 @@ jobs:
 
           # === CONFIG ===
           repositories = [
-              'swapnilpawar8767/Repo-info-report',
-              'swapnilpawar8767/test'
+              "swapnilpawar8767/Repo-info-report",
+              "swapnilpawar8767/env-test"
           ]
+
           token = os.environ.get("DILESH_PAT_TOKEN")
           webhook_url = os.environ.get("WEEKLY_ISSUE_REPORT")
           if not token:
@@ -57,6 +58,9 @@ jobs:
           for repo_name in repositories:
               repo = g.get_repo(repo_name)
               for issue in repo.get_issues(state="open"):
+                  # Skip pull requests - this is the key fix
+                  if issue.pull_request is not None:
+                      continue
                   issue_id = f"#{issue.number}"
                   title = issue.title
                   assignee = issue.assignee.login if issue.assignee else "Unassigned"
@@ -76,7 +80,6 @@ jobs:
           release_body = f"Daily GitHub open issues report ({len(repositories)} repos) - {today_str}"
 
           try:
-              # Delete existing release if same tag exists
               old_release = repo.get_release(release_tag)
               old_release.delete_release()
               repo.get_git_ref(f"tags/{release_tag}").delete()
