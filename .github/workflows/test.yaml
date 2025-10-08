@@ -23,70 +23,136 @@ jobs:
           WEEKLY_ISSUE_REPORT: ${{ vars.WEEKLY_ISSUE_REPORT }}
         run: |
           python << 'EOF'
-          import os, requests, datetime, pytz
+          import os
+          import requests
+          from datetime import datetime
+          import pytz
           from openpyxl import Workbook
+          from openpyxl.utils import get_column_letter
+          from openpyxl.styles import Font
           from github import Github
 
           # === CONFIG ===
           repositories = [
               "swapnilpawar8767/Repo-info-report",
-              "swapnilpawar8767/env-test"
+              "swapnilpawar8767/test"
           ]
 
           token = os.environ.get("DILESH_PAT_TOKEN")
           webhook_url = os.environ.get("WEEKLY_ISSUE_REPORT")
-          if not token:
-              print("❌ Missing GHPT_PAT token.")
-              exit(1)
-          if not webhook_url:
-              print("❌ Missing Teams webhook URL.")
+          if not token or not webhook_url:
+              print("❌ Missing GHPT_PAT or webhook URL.")
               exit(1)
 
           g = Github(token)
           IST = pytz.timezone("Asia/Kolkata")
-          today = datetime.datetime.now(IST).date()
-          today_str = today.strftime("%Y-%m-%d")
+          today = datetime.now(IST).strftime("%Y-%m-%d")
 
-          # === CREATE EXCEL ===
-          wb = Workbook()
-          ws = wb.active
-          ws.title = "Open Issues"
-          ws.append(["Sr.No", "Repo Name", "Issue ID", "Issue Title", "Assigned To", "Created On", "Open Still (Today)"])
+          # === Data containers ===
+          assignee_issues = {}   # assignee -> repo -> [(num, url, title, created, due)]
+          unassigned_issues = {} # repo -> [(num, url, title, created, due)]
 
-          total_open = 0
-          sr = 1
+          # === Fetch issues ===
           for repo_name in repositories:
+              print(f"Fetching issues from: {repo_name}")
               repo = g.get_repo(repo_name)
               for issue in repo.get_issues(state="open"):
-                  # Skip pull requests - this is the key fix
+                  # Skip pull requests
                   if issue.pull_request is not None:
                       continue
-                  issue_id = f"#{issue.number}"
-                  title = issue.title
-                  assignee = issue.assignee.login if issue.assignee else "Unassigned"
-                  created_on = issue.created_at.astimezone(IST).strftime("%Y-%m-%d")
-                  ws.append([sr, repo_name, issue_id, title, assignee, created_on, today_str])
-                  sr += 1
-                  total_open += 1
 
-          file_name = f"daily_issues_report_{today_str}.xlsx"
+                  assignees = issue.assignees
+                  issue_number = issue.number
+                  issue_url = issue.html_url
+                  issue_title = issue.title
+                  created_at = issue.created_at.astimezone(IST).strftime("%Y-%m-%d")
+                  due_on = ""
+                  if issue.milestone and issue.milestone.due_on:
+                      due_on = issue.milestone.due_on.astimezone(IST).strftime("%Y-%m-%d")
+
+                  if not assignees:
+                      unassigned_issues.setdefault(repo_name, []).append((issue_number, issue_url, issue_title, created_at, due_on))
+                      continue
+
+                  for a in assignees:
+                      login = a.login
+                      assignee_issues.setdefault(login, {}).setdefault(repo_name, []).append((issue_number, issue_url, issue_title, created_at, due_on))
+
+          # === Create Excel ===
+          wb = Workbook()
+          ws = wb.active
+          ws.title = "GitHub Issues Report"
+          headers = ["Type", "Assignee", "Repository", "Issue Number", "Description", "Created Date", "Due Date"]
+          ws.append(headers)
+
+          # Header formatting
+          for col in range(1, len(headers) + 1):
+              ws.cell(row=1, column=col).font = Font(bold=True)
+
+          row = 2
+          # Assigned Issues
+          for assignee, repos in assignee_issues.items():
+              for repo, issues in repos.items():
+                  for issue_number, issue_url, issue_title, created_at, due_on in issues:
+                      ws.append([
+                          "Assigned",
+                          assignee,
+                          repo,
+                          issue_number,
+                          issue_title,
+                          created_at,
+                          due_on
+                      ])
+                      link_cell = ws.cell(row=row, column=4)
+                      link_cell.hyperlink = issue_url
+                      link_cell.style = "Hyperlink"
+                      row += 1
+
+          # Unassigned Issues
+          for repo, issues in unassigned_issues.items():
+              for issue_number, issue_url, issue_title, created_at, due_on in issues:
+                  ws.append([
+                      "Unassigned",
+                      "",
+                      repo,
+                      issue_number,
+                      issue_title,
+                      created_at,
+                      due_on
+                  ])
+                  link_cell = ws.cell(row=row, column=4)
+                  link_cell.hyperlink = issue_url
+                  link_cell.style = "Hyperlink"
+                  row += 1
+
+          # Auto column width
+          for i, col in enumerate(ws.columns, start=1):
+              max_length = 0
+              col_letter = get_column_letter(i)
+              for cell in col:
+                  if cell.value:
+                      max_length = max(max_length, len(str(cell.value)))
+              ws.column_dimensions[col_letter].width = max_length + 2
+
+          file_name = f"github_issues_report_{today}.xlsx"
           wb.save(file_name)
 
-          # === CREATE GITHUB RELEASE ===
+          # === Create GitHub Release ===
           repo_name = os.environ.get("GITHUB_REPOSITORY")
-          repo = g.get_repo(repo_name)
-          release_tag = f"daily-issues-report-{today_str}"
-          release_name = f"Daily Issues Report - {today_str}"
-          release_body = f"Daily GitHub open issues report ({len(repositories)} repos) - {today_str}"
+          main_repo = g.get_repo(repo_name)
+          release_tag = f"daily-issues-report-{today}"
+          release_name = f"GitHub Issues Report - {today}"
+          release_body = f"Detailed daily GitHub issues report for {len(repositories)} repositories."
 
+          # Delete previous release with same tag if exists
           try:
-              old_release = repo.get_release(release_tag)
+              old_release = main_repo.get_release(release_tag)
               old_release.delete_release()
-              repo.get_git_ref(f"tags/{release_tag}").delete()
+              main_repo.get_git_ref(f"tags/{release_tag}").delete()
           except Exception:
               pass
 
-          release = repo.create_git_release(
+          release = main_repo.create_git_release(
               tag=release_tag,
               name=release_name,
               message=release_body,
@@ -96,17 +162,17 @@ jobs:
 
           asset = release.upload_asset(
               path=file_name,
-              name="daily_issues_report.xlsx",
-              label="Daily Issues Excel Report",
+              name="github_issues_report.xlsx",
+              label="GitHub Issues Report Excel",
               content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           )
+
           download_url = asset.browser_download_url
 
-          # === SEND TEAMS MESSAGE ===
+          # === Send Teams message ===
           msg = (
-              f"📊 **Daily GitHub Open Issues Report - {today_str}**\n\n"
+              f"📊 **Daily GitHub Issues Report - {today}**\n\n"
               f"📁 Repositories Checked: {len(repositories)}\n"
-              f"📈 **Total Open Issues:** {total_open}\n\n"
               f"📥 [Download Excel Report]({download_url})"
           )
 
