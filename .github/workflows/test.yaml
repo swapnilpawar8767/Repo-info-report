@@ -31,19 +31,18 @@ jobs:
           from openpyxl.utils import get_column_letter
           from openpyxl.styles import Font
           from github import Github
-
+          
           # === CONFIG ===
           repositories = [
               "swapnilpawar8767/Repo-info-report",
               "swapnilpawar8767/test"
           ]
-
           token = os.environ.get("DILESH_PAT_TOKEN")
           webhook_url = os.environ.get("WEEKLY_ISSUE_REPORT")
           if not token or not webhook_url:
               print("❌ Missing GHPT_PAT or webhook URL.")
               exit(1)
-
+          
           g = Github(token)
           IST = pytz.timezone("Asia/Kolkata")
           today = datetime.now(IST).strftime("%Y-%m-%d")
@@ -51,6 +50,7 @@ jobs:
           # === Data containers ===
           assignee_issues = {}   # assignee -> repo -> [(num, url, title, created, due)]
           unassigned_issues = {} # repo -> [(num, url, title, created, due)]
+          total_issues = 0
 
           # === Fetch issues ===
           for repo_name in repositories:
@@ -60,7 +60,7 @@ jobs:
                   # Skip pull requests
                   if issue.pull_request is not None:
                       continue
-
+                  total_issues += 1
                   assignees = issue.assignees
                   issue_number = issue.number
                   issue_url = issue.html_url
@@ -69,11 +69,9 @@ jobs:
                   due_on = ""
                   if issue.milestone and issue.milestone.due_on:
                       due_on = issue.milestone.due_on.astimezone(IST).strftime("%Y-%m-%d")
-
                   if not assignees:
                       unassigned_issues.setdefault(repo_name, []).append((issue_number, issue_url, issue_title, created_at, due_on))
                       continue
-
                   for a in assignees:
                       login = a.login
                       assignee_issues.setdefault(login, {}).setdefault(repo_name, []).append((issue_number, issue_url, issue_title, created_at, due_on))
@@ -166,16 +164,15 @@ jobs:
               label="GitHub Issues Report Excel",
               content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           )
-
           download_url = asset.browser_download_url
 
           # === Send Teams message ===
           msg = (
-              f"📊 **Daily GitHub Issues Report - {today}**\n\n"
+              f"📊 **Daily GitHub Open Issues Report - {today}**\n\n"
               f"📁 Repositories Checked: {len(repositories)}\n"
+              f"📈 **Total Open Issues:** {total_issues}\n\n"
               f"📥 [Download Excel Report]({download_url})"
           )
-
           response = requests.post(webhook_url, json={"text": msg}, headers={"Content-Type": "application/json"})
           if response.status_code == 200:
               print("✅ Teams message sent successfully.")
