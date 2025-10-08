@@ -1,8 +1,8 @@
-name: Daily GitHub Repo Report
+name: Weekly GitHub Repo Report (By User)
 
 on:
   schedule:
-    - cron: "30 2 * * *"  # Daily at 08:00 IST (2:30 AM UTC)
+    - cron: "30 2 * * 1"  # Every Monday at 08:00 IST (2:30 AM UTC)
   workflow_dispatch:
 
 jobs:
@@ -15,93 +15,198 @@ jobs:
           python-version: "3.x"
 
       - name: Install dependencies
-        run: pip install requests pytz
+        run: pip install requests pytz weasyprint markdown PyGithub
 
       - name: Generate and send report
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
-          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          GHPT_PAT: ${{ secrets.DILESH_PAT_TOKEN }}
+          WEEKLY_ISSUE_REPORT: ${{ vars.WEEKLY_ISSUE_REPORT }}
         run: |
           python << 'EOF'
-          import requests
-          import os
-          import datetime
-          import pytz
+          import requests, os, datetime, pytz, markdown
+          from weasyprint import HTML
+          from github import Github
 
+          # === SETTINGS ===
           repos = [
-              "ZySec-AI/cpod-backend"
-              "ZySec-AI/cyberpod"
-              "ZySec-AI/cpod-ui"
+              "swapnilpawar8767/Repo-info-report"
           ]
 
+          token = os.environ.get("GHPT_PAT")
+          if not token:
+              print("❌ No token found in GHPT_PAT. Exiting.")
+              exit(1)
+
           headers = {
-              "Authorization": f"token {os.environ['GITHUB_TOKEN']}",
+              "Authorization": f"token {token}",
               "Accept": "application/vnd.github.v3+json"
           }
 
+          IST = pytz.timezone('Asia/Kolkata')
           report_date = datetime.date.today()
           separator = "──────────────────────────────\n"
-          IST = pytz.timezone('Asia/Kolkata')
+          seven_days_ago = datetime.datetime.now(IST) - datetime.timedelta(days=7)
+          seven_days_ago_iso = seven_days_ago.isoformat()
 
           message_parts = []
-          message_parts.append(f"📊 Daily GitHub Repo Report - {report_date}\n\n")
+          message_parts.append(f"📊 Weekly GitHub Repo Report by User - {report_date}\n\n")
+          message_parts.append(f"Showing issues assigned to users updated in the last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\n\n")
 
           for repo in repos:
-              # Add repo name heading centered with bold, surrounded by separators
               repo_header = f"\n{separator}\n\n{' ' * 15}**{repo.upper()}**\n\n{separator}\n"
               message_parts.append(repo_header)
 
-              response = requests.get(
-                  f"https://api.github.com/repos/{repo}/issues?state=all&per_page=5&sort=updated",
-                  headers=headers,
-              )
-              issues = response.json()
+              url = f"https://api.github.com/repos/{repo}/issues?state=all&since={seven_days_ago_iso}&per_page=100&sort=updated"
+              try:
+                  response = requests.get(url, headers=headers)
+                  response.raise_for_status()
+                  issues = response.json()
+              except Exception as e:
+                  message_parts.append(f"Failed to fetch issues for {repo}: {e}\n{separator}\n")
+                  continue
 
-              for idx, issue in enumerate(issues):
+              # Group issues by assignee
+              user_issues = {}
+              for issue in issues:
                   if "pull_request" in issue:
                       continue
 
-                  title = issue.get("title", "")
-                  issue_url = issue.get("html_url", "")
-                  status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
-
-                  updated_at_raw = issue.get("updated_at", "")
+                  updated_at_raw = issue.get("updated_at")
+                  if not updated_at_raw:
+                      continue
                   try:
                       dt_utc = datetime.datetime.strptime(updated_at_raw, "%Y-%m-%dT%H:%M:%SZ")
                       dt_utc = dt_utc.replace(tzinfo=datetime.timezone.utc)
                       dt_ist = dt_utc.astimezone(IST)
+                  except:
+                      continue
+
+                  if dt_ist < seven_days_ago:
+                      continue
+
+                  assignee = issue.get("assignee")
+                  username = assignee["login"] if assignee else "Unassigned"
+                  user_issues.setdefault(username, []).append((issue, dt_ist))
+
+              if not user_issues:
+                  message_parts.append(f"No assigned issues updated in the last 7 days\n{separator}\n")
+                  continue
+
+              # Loop through each user
+              for username, issues_list in user_issues.items():
+                  message_parts.append(f"\n👤 **{username}**\n\n")
+                  open_count = 0
+                  closed_count = 0
+
+                  for issue, dt_ist in issues_list:
+                      title = issue.get("title", "")
+                      issue_number = issue.get("number", "")
+                      issue_url = issue.get("html_url", "")
+                      status = "🆕 Open" if issue.get("state", "").lower() == "open" else "Closed"
+
+                      if status == "🆕 Open":
+                          open_count += 1
+                      else:
+                          closed_count += 1
+
                       updated_at = dt_ist.strftime("%Y-%m-%d %H:%M:%S")
-                  except Exception:
-                      updated_at = updated_at_raw
 
-                  due_date = "-"
-                  if issue.get("milestone") and issue["milestone"].get("due_on"):
-                      due_date = issue["milestone"]["due_on"][:10]
+                      # Milestone & Due Date
+                      milestone = issue.get("milestone")
+                      milestone_name = "-"
+                      due_date = "-"
+                      if isinstance(milestone, dict):
+                          milestone_name = milestone.get("title", "-")
+                          due_date = milestone.get("due_on", "-")[:10] if milestone.get("due_on") else "-"
 
-                  last_comment = "No comments"
-                  if issue.get("comments", 0) > 0:
-                      comments_response = requests.get(issue["comments_url"], headers=headers)
-                      comments = comments_response.json()
-                      if comments:
-                          last_comment = comments[-1].get("body", "").replace("\n", " ")
-                          if len(last_comment) > 50:
-                              last_comment = last_comment[:47] + "..."
+                      # Last Comment
+                      last_comment = "No comments"
+                      if issue.get("comments", 0) > 0:
+                          try:
+                              comments_response = requests.get(issue["comments_url"], headers=headers)
+                              comments_response.raise_for_status()
+                              comments = comments_response.json()
+                              if comments:
+                                  last_comment = comments[-1].get("body", "").replace("\n", " ")
+                                  if len(last_comment) > 50:
+                                      last_comment = last_comment[:47] + "..."
+                          except:
+                              last_comment = "Failed to fetch comments"
 
-                  message_parts.append(f"📌 **[{title}]({issue_url})**  \n"
-                                       f"**Last Comment** :: {last_comment}  \n"
-                                       f"**Due Date**     :: {due_date}  \n"
-                                       f"**Status**       :: {status}  \n"
-                                       f"**Last Updated** :: {updated_at}  \n"
-                                       f"{separator}\n")
+                      # Add to message
+                      message_parts.append(
+                          f"📌 **#{issue_number}** [{title}]({issue_url})  \n"
+                          f"**Status**: {status} | **Updated**: {updated_at}  \n"
+                          f"**Milestone**: {milestone_name} | **Due**: {due_date}  \n"
+                          f"**Last Comment**: {last_comment}  \n"
+                          f"{separator}  \n"
+                      )
+
+                  # User summary
+                  message_parts.append(
+                      f"📊 **Summary for {username}**  \n"
+                      f"Open Issues   :: {open_count}  \n"
+                      f"Closed Issues :: {closed_count}  \n"
+                      f"{separator}  \n"
+                  )
 
           final_message = "".join(message_parts)
+          with open('weekly_report.md', 'w', encoding='utf-8') as f:
+              f.write(final_message)
 
-          payload = {
-              "text": final_message,
-              "markdown": True
-          }
+          # PDF generation
+          html_content = markdown.markdown(final_message, extensions=['tables', 'fenced_code'])
+          styled_html = f"<html><body>{html_content}</body></html>"
+          HTML(string=styled_html).write_pdf('weekly_report.pdf')
 
-          resp = requests.post(os.environ["TEAMS_WEBHOOK_URL"], json=payload)
-          resp.raise_for_status()
-          print("✅ Report sent to Teams successfully!")
+          # === Upload PDF to GitHub Release ===
+          g = Github(token)
+          repo_obj = g.get_repo(repos[0])  # Use first repo for release storage
+          release_tag = f"weekly-report-{report_date}"
+          release_name = f"Weekly Report - {report_date}"
+          release_body = f"Weekly GitHub Repo Report for {report_date}\n\nPeriod: Last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})\nRepositories: {len(repos)} repositories monitored"
+
+          try:
+              existing_release = repo_obj.get_release(release_tag)
+              existing_release.delete_release()
+              repo_obj.get_git_ref(f"tags/{release_tag}").delete()
+          except:
+              pass
+
+          release = repo_obj.create_git_release(
+              tag=release_tag,
+              name=release_name,
+              message=release_body,
+              draft=False,
+              prerelease=False
+          )
+
+          release.upload_asset(
+              path='weekly_report.pdf',
+              name='weekly_report.pdf',
+              label='Weekly Report PDF',
+              content_type='application/pdf'
+          )
+
+          download_url = f"https://github.com/{repos[0]}/releases/download/{release_tag}/weekly_report.pdf"
+
+          # Send Teams notification
+          webhook_url = os.environ.get("WEEKLY_ISSUE_REPORT")
+          if webhook_url:
+              payload = {
+                  "text": f"📊 Weekly GitHub Repo Report by User - {report_date}\n\n"
+                          f"📅 Period: Last 7 days (since {seven_days_ago.strftime('%Y-%m-%d')})  \n"
+                          f"📊 Repositories: {len(repos)} repositories monitored  \n"
+                          f"📥 [Download PDF Report]({download_url})"
+              }
+              requests.post(webhook_url, json=payload, headers={"Content-Type": "application/json"})
           EOF
+
+      - name: Upload Report Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-report-${{ github.run_id }}
+          path: |
+            weekly_report.md
+            weekly_report.pdf
+          retention-days: 7
